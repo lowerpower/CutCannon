@@ -1,4 +1,4 @@
-# cutcannon
+# CutCannon
 
 **Record once. Claude does the edit.**
 
