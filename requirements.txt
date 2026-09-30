@@ -1,0 +1,10 @@
+# Known-good versions, verified together on 2026-09-30 (Ubuntu 24.04, Python 3.12).
+# Pinned exactly so a fresh clone gets a working set, not whatever is newest.
+faster-whisper==1.2.1
+ctranslate2==4.8.2
+onnxruntime==1.30.0          # faster-whisper's VAD
+# av 19.x removed open(metadata_errors=...), which faster-whisper 1.2.1 still passes:
+# every transcription fails with "unexpected keyword argument 'metadata_errors'".
+av==18.1.0
+opencv-python-headless==5.0.0.93
+numpy==2.5.3

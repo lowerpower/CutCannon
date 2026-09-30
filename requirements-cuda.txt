@@ -1,0 +1,5 @@
+# Installed by setup.sh only when an NVIDIA GPU is present.
+# CUDA runtime libraries as pip wheels, so no system CUDA install is needed
+# (env.sh puts them on LD_LIBRARY_PATH).
+nvidia-cublas-cu12==12.9.2.10
+nvidia-cudnn-cu12==9.27.0.42
