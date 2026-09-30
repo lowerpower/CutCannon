@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup.sh - install cutcannon + Claude Code skills. Idempotent; safe to re-run.
+# setup.sh - install cutcannon (+ its skills for Claude Code). Idempotent; safe to re-run.
 #   Linux + NVIDIA : GPU transcription (CUDA wheels, no system CUDA needed) + NVENC if ffmpeg has it
 #   Linux CPU / macOS : CPU transcription (int8), libx264 encode
 # Needs (not installed by this script): python3 (+venv), ffmpeg, curl.
@@ -50,7 +50,7 @@ if [ "$(uname -s)" = Darwin ]; then FD="$HOME/Library/Fonts"; else FD="$HOME/.lo
 mkdir -p "$FD" && cp -n fonts/*.ttf "$FD/" 2>/dev/null || true
 command -v fc-cache >/dev/null && fc-cache -f >/dev/null || true
 
-say "Claude Code skills -> ~/.claude/skills"
+say "skills -> ~/.claude/skills (for Claude Code)"
 mkdir -p "$HOME/.claude/skills"
 for s in skills/*/; do
   n=$(basename "$s"); mkdir -p "$HOME/.claude/skills/$n"
@@ -83,4 +83,4 @@ if [[ "$FONTS_SEEN" == *"Montserrat Black"* ]]; then echo "  font: Montserrat Bl
 elif [ "$(uname -s)" = Darwin ]; then echo "  font: installed to ~/Library/Fonts"
 else echo "  font: NOT visible to fontconfig (captions will fall back to a default font)"; fi
 
-say "done. Start with:  cd $ROOT && claude   then: \"cut shorts from /path/to/take.mp4\""
+say "done. Drive it from a Claude chat via the NoBGP MCP connector, or locally: cd $ROOT && claude"

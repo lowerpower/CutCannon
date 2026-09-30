@@ -2,7 +2,7 @@
 
 **Record once. Claude does the edit.**
 
-`cutcannon` turns raw recordings (a phone take, a two-person podcast, a screen-recorded demo) into finished video on your own machine. You drive it in plain English from [Claude Code](https://docs.claude.com/en/docs/claude-code/overview). It does two jobs:
+`cutcannon` turns raw recordings (a phone take, a two-person podcast, a screen-recorded demo) into finished video on your own GPU machine. You drive it in plain English from a **Claude chat**, which reaches that machine through the **NoBGP MCP connector**. You work from anywhere while the heavy lifting runs on your own hardware. Running [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) directly on the machine works too. It does two jobs:
 
 - **Shorts:** cut vertical 1080×1920 clips with word-by-word captions, a hook card, and a crop that follows whoever is speaking.
 - **Cleanup:** keep the full video in its original frame, and remove false starts, ums, and dead pauses (only pauses where the screen is also still), with audio at −14 LUFS.
@@ -36,7 +36,7 @@ record ─▶ transcribe ─▶ plan ─▶ render ─▶ QA ─▶ tweak / undo
 | GPU | none (CPU works) | NVIDIA, ≥ 4 GB VRAM |
 | Software | `python3` + `venv`, `ffmpeg` (with libass, zimg), `curl` | ffmpeg with `h264_nvenc` |
 | Driver | none | NVIDIA driver only. CUDA/cuDNN come as pip wheels inside the venv |
-| Agent | [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) | |
+| Agent | Claude chat + NoBGP MCP connector (remote) | or [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) on the machine |
 
 ```bash
 sudo apt install -y python3-venv ffmpeg curl      # Ubuntu
@@ -61,7 +61,7 @@ cd cutcannon
 ./setup.sh
 ```
 
-`setup.sh` is idempotent and uses no `sudo`. It creates `.venv/`, installs CUDA wheels only if an NVIDIA GPU is present, downloads the Montserrat font and the YuNet face model, installs the two Claude Code skills into `~/.claude/skills/`, and finishes with a self-test:
+`setup.sh` is idempotent and uses no `sudo`. It creates `.venv/`, installs CUDA wheels only if an NVIDIA GPU is present, downloads the Montserrat font and the YuNet face model, installs the two skills into `~/.claude/skills/` (where Claude Code finds them), and finishes with a self-test:
 
 ```
   whisper: cuda | face model: ok | opencv 5.0.0
@@ -69,16 +69,28 @@ cd cutcannon
   font: Montserrat Black
 ```
 
+## Connect Claude
+
+**Option A: Claude chat + NoBGP (the usual way).** Your conversation runs in Claude; every command runs on the GPU machine.
+
+1. Put the GPU machine on your NoBGP network (install the NoBGP agent; the NoBGP connector can generate the registration command).
+2. In Claude, add the NoBGP MCP connector: `https://mcp.nobgp.com/mcp`.
+3. Give Claude the workflow: add `skills/cutcannon-editor/SKILL.md` and `skills/cutcannon-idea-picker/SKILL.md` to your Claude account as custom skills, or paste them into a Claude Project's instructions.
+4. Tell Claude where the toolkit lives, e.g. *"cutcannon is in ~/cutcannon on my gpu-box node."*
+
+Renders stay on the GPU machine. Ask Claude to copy finished files to another of your nodes (a laptop, say) when you want them there.
+
+**Option B: Claude Code on the machine.** `setup.sh` already installed the skills, so just run `claude` in the repo.
+
 ## Quick start
 
-Put each recording in its own project folder, then start Claude Code in the repo:
+Put each recording in its own project folder on the GPU machine:
 
 ```bash
 mkdir projects/product-demo && mv ~/Downloads/ProductDemo.mov projects/product-demo/
-claude
 ```
 
-Then just ask. If you don't say which project, what job, or how many clips, Claude shows the
+Then just ask Claude. If you don't say which project, what job, or how many clips, Claude shows the
 project list and asks. Pick a number of clips, or **auto** to have Claude read the whole transcript
 and propose as many as the material supports. It always proposes first and renders only what you pick.
 

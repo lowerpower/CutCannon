@@ -9,6 +9,8 @@ Toolkit lives in `~/cutcannon`. Always run commands as:
 
     cd ~/cutcannon && . ./env.sh && python bin/<script>.py ...
 
+**Where commands run.** The toolkit lives on one machine (usually a GPU box). When you reach it through a remote-execution connector such as NoBGP MCP, run every command on that node; source files, plans and renders stay there unless the user asks to copy something to another machine.
+
 ## Session start: ask before you cut
 
 Settle three things before any plan or render. **Skip any question the user's request already
