@@ -30,28 +30,34 @@ record ─▶ transcribe ─▶ plan ─▶ render ─▶ QA ─▶ tweak / undo
 
 ## Requirements
 
-| | Minimum | Recommended |
+Runs on **Apple Silicon Macs** (Whisper on the Metal GPU via MLX, VideoToolbox encode/decode) and on
+**Linux** (Whisper on an NVIDIA GPU via CUDA, NVENC encode), or on any CPU, slowly. `setup.sh` picks
+the backend for you.
+
+| | macOS (Apple Silicon) | Linux |
 |---|---|---|
-| OS | Linux (macOS: see below) | Ubuntu 22.04+ |
-| GPU | none (CPU works) | NVIDIA, ≥ 4 GB VRAM |
-| Software | `python3` + `venv`, `ffmpeg` (with libass, zimg), `curl` | ffmpeg with `h264_nvenc` |
-| Driver | none | NVIDIA driver only. CUDA/cuDNN come as pip wheels inside the venv |
+| Speech-to-text | mlx-whisper on the Metal GPU | faster-whisper on CUDA (CPU fallback) |
+| Video encode | h264_videotoolbox | h264_nvenc (libx264 fallback) |
+| Software | `python3`, `curl`, ffmpeg **with libass + zimg** | `python3-venv`, `curl`, ffmpeg |
+| GPU driver | nothing extra | NVIDIA driver only. CUDA/cuDNN come as pip wheels in the venv |
 | Agent | Claude chat + NoBGP MCP connector (remote) | or [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) on the machine |
 
 ```bash
-sudo apt install -y python3-venv ffmpeg curl      # Ubuntu
+# macOS: Homebrew's default ffmpeg lacks the subtitles and zscale filters, so use the full build
+brew tap homebrew-ffmpeg/ffmpeg && brew install homebrew-ffmpeg/ffmpeg/ffmpeg --with-zimg
+
+# Ubuntu
+sudo apt install -y python3-venv ffmpeg curl
 ```
 
-**Measured on** Ubuntu 24.04, RTX 3050 6 GB, 4-core CPU:
+**Measured render times** (render + QA, as a multiple of the finished clip's length; lower is faster):
 
-| Job | Source | Render time |
+| Job | Mac mini M4, 16 GB | Linux, RTX 3050 + 4-core CPU |
 |---|---|---|
-| 53 s short from a 37 min podcast | 720p SDR, speaker tracking | ~1.2–1.35× clip length |
-| 32–36 s short | iPhone 1080p HDR (HEVC) | ~2× clip length (CPU HDR tone mapping dominates) |
-| 3:02 → 2:35 full cleanup | 1440×1080 screen recording | ~0.6× length |
-| Transcription | 37 min episode | ~3 min (`medium.en`, GPU) |
-
-**macOS** (Apple Silicon): everything runs, but it is untested so far. faster-whisper has no Apple GPU backend, so transcription falls back to CPU, and encoding falls back to libx264. MLX Whisper and VideoToolbox support are planned.
+| HDR short (10-bit HLG HEVC, tone-mapped to SDR) | **~0.7×** | ~2× (CPU tone mapping dominates) |
+| SDR short | ~0.7× | ~1.2–1.35× (podcast, with speaker tracking) |
+| 3:02 → 2:35 full cleanup (screen recording) | not yet measured | ~0.6× |
+| Transcription, `medium.en`, warm | ~0.18× audio length | ~0.08× audio length |
 
 ## Install
 
@@ -107,10 +113,11 @@ Before recording, try: **"Score these ideas: …"** → the idea picker ranks th
 ```
 cutcannon/
 ├── setup.sh                 install + self-test
-├── requirements.txt         pinned, verified versions (requirements-cuda.txt: NVIDIA only)
+├── requirements*.txt        pinned, verified versions: Linux, -cuda (NVIDIA only), -mac (Apple Silicon)
 ├── bin/
 │   ├── projects.py          status of every project (what's new, transcribed, rendered, QA)
-│   ├── transcribe.py        faster-whisper → sentence lines, word timings, fillers
+│   ├── asr.py               speech-to-text backends: mlx-whisper (Apple) / faster-whisper (CUDA, CPU)
+│   ├── transcribe.py        recording → sentence lines, word timings, fillers
 │   ├── plan.py              versioned plans: save / list / show / undo / use / approve
 │   ├── render.py            tighten → crop/track → captions + hook → encode → loudnorm → QA
 │   └── qa.py                8 checks + contact sheet
@@ -217,7 +224,8 @@ python bin/plan.py approve podcast-ep12 s1
 
 - The vertical crop assumes the speaker is on camera. B-roll inserted in the source falls back to a center crop.
 - A 720p source cropped to vertical is upscaled about 2.7×, so it looks soft. Use the highest-resolution original you have.
-- HDR tone mapping runs on the CPU. GPU tone mapping via libplacebo works but produces a different look and is not the default yet.
+- HDR tone mapping runs on the CPU. On Apple Silicon that's fast (~0.7× clip length); on a small Linux CPU it dominates render time. GPU tone mapping via libplacebo works on Linux but produces a different look and is not the default yet.
+- mlx-whisper has no voice-activity filter, so very long silences can occasionally produce a stray phrase. QA's caption and filler checks catch it.
 - Whisper occasionally won't transcribe a filler at all and stretches the neighboring word instead. QA catches it, and it's fixed with a clip boundary.
 
 ## Acknowledgements

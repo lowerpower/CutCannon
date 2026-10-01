@@ -321,16 +321,37 @@ def source_transfer(src):
 
 
 # ---------------------------------------------------------------- encode
-def has_nvenc():
+# encoder name -> (ffmpeg encode args, matching hardware-decode args)
+ENCODERS = {
+    "nvenc": (["-c:v", "h264_nvenc", "-preset", "p5", "-cq", "21", "-b:v", "0"], ["-hwaccel", "cuda"]),
+    "videotoolbox": (["-c:v", "h264_videotoolbox", "-q:v", "65", "-allow_sw", "0"], ["-hwaccel", "videotoolbox"]),
+}
+
+
+def _encoder_works(codec):
+    t = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=s=256x256:d=0.1",
+                        "-c:v", codec, "-f", "null", "-"], capture_output=True)
+    return t.returncode == 0
+
+
+def pick_encoder():
+    """The hardware H.264 encoder that actually works here: nvenc (NVIDIA), videotoolbox
+    (Apple Silicon), else libx264 on the CPU. CUTCANNON_ENCODER=nvenc|videotoolbox|x264 overrides."""
+    forced = os.environ.get("CUTCANNON_ENCODER")
+    if forced in ("nvenc", "videotoolbox", "x264"):
+        return forced
     try:
         out = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True).stdout
-        if "h264_nvenc" not in out:
-            return False
-        t = subprocess.run(["ffmpeg", "-hide_banner", "-f", "lavfi", "-i", "color=s=256x256:d=0.1",
-                            "-c:v", "h264_nvenc", "-f", "null", "-"], capture_output=True)
-        return t.returncode == 0
     except Exception:
-        return False
+        return "x264"
+    for name, codec in (("nvenc", "h264_nvenc"), ("videotoolbox", "h264_videotoolbox")):
+        if codec in out and _encoder_works(codec):
+            return name
+    return "x264"
+
+
+def has_nvenc():  # kept for older callers
+    return pick_encoder() == "nvenc"
 
 
 def two_pass_loudnorm(mp4, I=-14.0, TP=-1.5, LRA=11):
@@ -361,7 +382,7 @@ def rescan_fillers(d, src, clips):
     Plans freeze resolved seconds, so this never changes what a saved version cuts.
     Scanned ranges are recorded in transcript.json and not redone."""
     import numpy as np
-    import qa
+    import asr
     from transcribe import PROMPT, FILLER
     tf = d / "transcript.json"
     tr = json.loads(tf.read_text())
@@ -381,7 +402,7 @@ def rescan_fillers(d, src, clips):
                               "-i", str(src), "-map", "0:a:0", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"],
                              capture_output=True).stdout
         audio = np.frombuffer(pcm, np.int16).astype(np.float32) / 32768
-        segs, _ = qa.whisper().transcribe(audio, word_timestamps=True, initial_prompt=PROMPT)
+        segs = asr.transcribe(audio, prompt=PROMPT)
         new = []
         for s in segs:
             for w in (s.words or []):
@@ -405,7 +426,7 @@ def rescan_fillers(d, src, clips):
     return tr["words"], added, len(todo)
 
 
-def render_short(d, meta, words, short, ver, preview, nvenc):
+def render_short(d, meta, words, short, ver, preview, enc):
     T, t0 = {}, time.time()
     src = P.source(d)
     trc = source_transfer(src)
@@ -467,7 +488,7 @@ def render_short(d, meta, words, short, ver, preview, nvenc):
     # 3. one seeked input per segment: decodes only what is used
     inputs = []
     for c in clips:
-        hw = ["-hwaccel", "cuda"] if nvenc else []
+        hw = ENCODERS[enc][1] if enc in ENCODERS else []
         inputs += [*hw, "-ss", f"{c['start']:.4f}", "-t", f"{c['end'] - c['start']:.4f}", "-i", str(src)]
     pw, ph = int(W * PUNCH) // 2 * 2, int(H * PUNCH) // 2 * 2
     fc = []
@@ -499,7 +520,7 @@ def render_short(d, meta, words, short, ver, preview, nvenc):
     fc.append(f"[ac]{','.join(pre + ['loudnorm=I=-14:TP=-1.5:LRA=11'])}[aout]")
 
     outp = d / "renders" / f"{tag}.mp4"
-    venc = (["-c:v", "h264_nvenc", "-preset", "p5", "-cq", "21", "-b:v", "0"] if nvenc
+    venc = (ENCODERS[enc][0] if enc in ENCODERS
             else ["-c:v", "libx264", "-preset", "veryfast" if preview else "medium", "-crf", "20"])
     cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *inputs,
            "-filter_complex", ";".join(fc), "-map", "[vout]", "-map", "[aout]",
@@ -516,7 +537,7 @@ def render_short(d, meta, words, short, ver, preview, nvenc):
     two_pass_loudnorm(outp)
     T["loudnorm"] = time.time() - t
 
-    info = {"source_transfer": trc, "tonemapped": hdr, "encoder": "nvenc" if nvenc else "x264",
+    info = {"source_transfer": trc, "tonemapped": hdr, "encoder": enc,
             "planned_s": planned, "final_s": short["duration"], "segments": n,
             "tighten": tg, "punch_in": bool(short.get("punch_in")), "format": fmt, "audio": au,
             "crop_keyframes": [[(round(t, 2), round(x, 3)) for t, x in kf] for kf in keys]}
@@ -524,7 +545,7 @@ def render_short(d, meta, words, short, ver, preview, nvenc):
     info_f.write_text(json.dumps(info))
     print(f"  {outp.name}  {planned:.1f}s -> {short['duration']:.1f}s  ({n} segments"
           f"{', punch-in' if short.get('punch_in') else ''})  "
-          f"{'nvenc' if nvenc else 'x264'}{'  HDR->SDR' if hdr else ''}")
+          f"{enc}{'  HDR->SDR' if hdr else ''}")
 
     import qa
     sw_n = sum(len(k) - 1 for k in keys)
@@ -563,12 +584,12 @@ def main():
         sys.exit("plan problems:\n  " + "\n  ".join(probs))
     meta = json.loads((d / "meta.json").read_text())
     words = json.loads((d / "transcript.json").read_text())["words"]
-    nvenc = has_nvenc()
+    enc = pick_encoder()
     shorts = [s for s in res["shorts"] if not args or s["id"] in args]
     print(f"rendering v{ver:03d}: {len(shorts)} short(s){' [preview]' if preview else ''}")
     t = time.time()
     for s in shorts:
-        render_short(d, meta, words, s, ver, preview, nvenc)
+        render_short(d, meta, words, s, ver, preview, enc)
     print(f"all done in {time.time() - t:.1f}s")
 
 

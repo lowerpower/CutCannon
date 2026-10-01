@@ -80,16 +80,9 @@ def main():
     meta = {"source": src.name, **probe(src)}
     (proj / "meta.json").write_text(json.dumps(meta, indent=2))
 
-    from faster_whisper import WhisperModel
-    try:
-        model = WhisperModel(a.model, device="cuda", compute_type="float16")
-    except Exception as e:
-        print(f"cuda unavailable ({e}); using cpu", file=sys.stderr)
-        model = WhisperModel(a.model, device="cpu", compute_type="int8")
-
+    import asr
     t0 = time.time()
-    segs, _ = model.transcribe(str(src), word_timestamps=True, vad_filter=True, initial_prompt=PROMPT,
-                               vad_parameters={"min_silence_duration_ms": 400})
+    segs = asr.transcribe(str(src), prompt=PROMPT, vad=True, model=a.model)
 
     # one "line" per sentence (or per 0.6s+ pause), so cuts are sentence-precise
     lines, words, cur = [], [], []
@@ -134,7 +127,7 @@ def main():
     nf = sum(1 for w in words if w.get("f"))
     print(f"project: {proj}")
     print(f"{len(lines)} lines, {len(words)} words ({nf} fillers, shown as (um)), {meta['duration']:.1f}s source, "
-          f"transcribed in {time.time()-t0:.1f}s")
+          f"transcribed in {time.time()-t0:.1f}s with {asr.describe(a.model)}")
 
 
 if __name__ == "__main__":

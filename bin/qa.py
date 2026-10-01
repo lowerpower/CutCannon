@@ -83,24 +83,11 @@ def speech_intervals(words, clips):
     return merge(iv)
 
 
-_WHISPER = {}
-
-
-def whisper():
-    """One shared Whisper model per process (render's filler rescan + QA)."""
-    if "m" not in _WHISPER:
-        from faster_whisper import WhisperModel
-        try:
-            _WHISPER["m"] = WhisperModel("medium.en", device="cuda", compute_type="float16")
-        except Exception:
-            _WHISPER["m"] = WhisperModel("small.en", device="cpu", compute_type="int8")
-    return _WHISPER["m"]
-
-
 def remaining_fillers(mp4):
     """Re-transcribe the finished render with the disfluency prompt; list fillers left in."""
+    import asr
     from transcribe import PROMPT, FILLER
-    segs, _ = whisper().transcribe(str(mp4), word_timestamps=True, initial_prompt=PROMPT)
+    segs = asr.transcribe(str(mp4), prompt=PROMPT)
     return [round(w.start, 2) for s in segs for w in (s.words or []) if FILLER.match(w.word.strip())]
 
 
