@@ -55,14 +55,62 @@ def describe(model=None):
     return f"faster-whisper {model} ({_faster_model(model)[1]})"
 
 
+_VAD_SCRIPT = r"""
+import sys, json, numpy as np
+from faster_whisper.vad import get_speech_timestamps, VadOptions
+src = sys.argv[1]
+if src.endswith('.f32'):
+    a = np.fromfile(src, dtype=np.float32)
+else:
+    from faster_whisper.audio import decode_audio
+    a = decode_audio(src, sampling_rate=16000)
+ts = get_speech_timestamps(a, VadOptions(min_silence_duration_ms=400, speech_pad_ms=200))
+print(json.dumps([[t['start'] / 16000, t['end'] / 16000] for t in ts]))
+"""
+
+
+def _speech_clips(audio):
+    """Silero VAD (shipped with faster-whisper) -> flat [start, end, start, end, ...] in seconds.
+    Used to give mlx-whisper only the stretches where someone is talking: on music, applause
+    or silence Whisper can loop on an invented sentence (seen: 31 copies of one line), or add
+    a phantom word over B-roll.
+
+    Runs in a SUBPROCESS on purpose: faster-whisper loads PyAV, and on macOS PyAV and OpenCV
+    both bundle libavdevice with the same Objective-C classes; loading both into the render
+    process crashed it. A separate process keeps them apart."""
+    import json, subprocess, tempfile
+    import numpy as np
+    tmp = None
+    if isinstance(audio, str):
+        src = audio
+    else:
+        tmp = tempfile.NamedTemporaryFile(suffix=".f32", delete=False)
+        np.asarray(audio, dtype=np.float32).tofile(tmp.name)
+        tmp.close()
+        src = tmp.name
+    try:
+        r = subprocess.run([sys.executable, "-c", _VAD_SCRIPT, src], capture_output=True, text=True)
+    finally:
+        if tmp:
+            os.unlink(tmp.name)
+    if r.returncode != 0:
+        raise RuntimeError(f"VAD failed: {r.stderr.strip()[-300:]}")
+    spans = json.loads(r.stdout.strip().splitlines()[-1])
+    return [round(x, 3) for a, b in spans for x in (a, b)]
+
+
 def transcribe(audio, prompt=None, vad=False, model=None):
     model = model or DEFAULT_MODEL
     if backend() == "mlx":
         import mlx_whisper
-        # mlx-whisper has no VAD; `vad` is ignored (long silences can occasionally
-        # produce a stray hallucinated phrase - QA's caption and filler checks catch it)
+        clips = "0"
+        if vad:
+            clips = _speech_clips(audio)
+            if not clips:
+                return []  # no speech at all
         r = mlx_whisper.transcribe(audio, path_or_hf_repo=MLX_REPOS.get(model, model),
-                                   word_timestamps=True, initial_prompt=prompt, verbose=None)
+                                   word_timestamps=True, initial_prompt=prompt, verbose=None,
+                                   clip_timestamps=clips, hallucination_silence_threshold=2.0)
         segs = []
         for s in r.get("segments", []):
             words = [SimpleNamespace(word=w["word"], start=float(w["start"]), end=float(w["end"]),

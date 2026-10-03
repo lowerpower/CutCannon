@@ -87,7 +87,7 @@ def remaining_fillers(mp4):
     """Re-transcribe the finished render with the disfluency prompt; list fillers left in."""
     import asr
     from transcribe import PROMPT, FILLER
-    segs = asr.transcribe(str(mp4), prompt=PROMPT)
+    segs = asr.transcribe(str(mp4), prompt=PROMPT, vad=True)  # VAD: no phantom "um" over music
     return [round(w.start, 2) for s in segs for w in (s.words or []) if FILLER.match(w.word.strip())]
 
 
@@ -223,6 +223,11 @@ def main():
         if not mp4.exists():
             print(f"  {tag}: not rendered")
             continue
+        info_f = d / "renders" / f"{tag}_render.json"
+        if info_f.exists():  # check against the tightened segments the render actually used
+            info = json.loads(info_f.read_text())
+            if info.get("clips"):
+                s = {**s, "clips": info["clips"], "duration": info["final_s"]}
         print(f"  {tag}")
         run(d, s, mp4, tag)
 

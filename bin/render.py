@@ -202,6 +202,9 @@ def tighten(clips, words, env, fillers=True, max_pause=0.2, motion=None):
         ws = [w for w in words if c["start"] <= (w["s"] + w["e"]) / 2 <= c["end"]]
         keep = [w for w in ws if not (fillers and w.get("f"))]
         if not keep:
+            # no speech in this clip: it was chosen for its picture (B-roll, a reaction shot),
+            # so keep it whole instead of dropping it
+            segs.append({"start": c["start"], "end": c["end"], **extra})
             continue
         # clip edges snap to the first / last REAL word: drops leading/trailing fillers and
         # noise even when Whisper didn't transcribe them (energy check keeps word onsets)
@@ -354,8 +357,9 @@ def has_nvenc():  # kept for older callers
     return pick_encoder() == "nvenc"
 
 
-def two_pass_loudnorm(mp4, I=-14.0, TP=-1.5, LRA=11):
-    """Measure, then re-apply loudnorm linearly; video stream is copied untouched."""
+def two_pass_loudnorm(mp4, I=-14.0, TP=-2.0, LRA=11):
+    """Measure, then re-apply loudnorm linearly; video stream is copied untouched.
+    TP -2.0 (not -1.5) leaves headroom for the inter-sample peaks AAC encoding adds."""
     m = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-vn", "-i", str(mp4), "-af",
                         f"loudnorm=I={I}:TP={TP}:LRA={LRA}:print_format=json", "-f", "null", "-"],
                        capture_output=True, text=True).stderr
@@ -402,7 +406,7 @@ def rescan_fillers(d, src, clips):
                               "-i", str(src), "-map", "0:a:0", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"],
                              capture_output=True).stdout
         audio = np.frombuffer(pcm, np.int16).astype(np.float32) / 32768
-        segs = asr.transcribe(audio, prompt=PROMPT)
+        segs = asr.transcribe(audio, prompt=PROMPT, vad=True)  # VAD: no phantom words over B-roll/music
         new = []
         for s in segs:
             for w in (s.words or []):
@@ -439,6 +443,9 @@ def render_short(d, meta, words, short, ver, preview, enc):
     else:
         W, H = (540, 960) if preview else (1080, 1920)
     fps = meta["fps"] or 30
+    # output at the source frame rate, so cut points (snapped to source frames) land exactly on
+    # output frames; 23.976 fps footage at a forced 30 fps drifted ~0.4 s over 34 cuts
+    fps_out = fps if 15 <= fps <= 60 else 30.0
 
     # 1. tighten: split clips around fillers / long pauses
     tg = short.get("tighten") or {}
@@ -459,9 +466,11 @@ def render_short(d, meta, words, short, ver, preview, enc):
     for c in segs:
         s, e = round(round(c["start"] * fps) / fps, 4), round(round(c["end"] * fps) / fps, 4)
         if e - s >= 3 / fps:
-            clips.append({**c, "start": s, "end": e})
+            clips.append({**c, "start": s, "end": e, "n": round((e - s) * fps_out)})
     planned = short["duration"]
-    short = {**short, "clips": clips, "duration": round(sum(c["end"] - c["start"] for c in clips), 2)}
+    # each segment is exactly n output frames, with audio trimmed to exactly n frames' length,
+    # so audio and video can never drift apart, however many cuts there are
+    short = {**short, "clips": clips, "duration": round(sum(c["n"] for c in clips) / fps_out, 3)}
 
     sw, sh = meta["width"], meta["height"]
     vertical = sw / sh <= 9 / 16 + 0.01
@@ -489,7 +498,7 @@ def render_short(d, meta, words, short, ver, preview, enc):
     inputs = []
     for c in clips:
         hw = ENCODERS[enc][1] if enc in ENCODERS else []
-        inputs += [*hw, "-ss", f"{c['start']:.4f}", "-t", f"{c['end'] - c['start']:.4f}", "-i", str(src)]
+        inputs += [*hw, "-ss", f"{c['start']:.4f}", "-t", f"{c['end'] - c['start'] + 0.1:.4f}", "-i", str(src)]
     pw, ph = int(W * PUNCH) // 2 * 2, int(H * PUNCH) // 2 * 2
     fc = []
     for i, (c, kf) in enumerate(zip(clips, keys)):
@@ -506,9 +515,10 @@ def render_short(d, meta, words, short, ver, preview, enc):
         if short.get("punch_in") and fmt == "vertical" and i % 2 == 1:
             geo += f",scale={pw}:{ph},crop={W}:{H}:(iw-{W})/2:(ih-{H})/2"
         tm = TONEMAP + "," if hdr else ""
-        fc.append(f"[{i}:v:0]setpts=PTS-STARTPTS,{tm}{geo},setsar=1,fps=30[v{i}]")
-        dur = c["end"] - c["start"]
-        fc.append(f"[{i}:a:0]asetpts=PTS-STARTPTS,aresample=48000,"
+        fc.append(f"[{i}:v:0]setpts=PTS-STARTPTS,{tm}{geo},setsar=1,fps={fps_out:.6f},"
+                  f"tpad=stop_mode=clone:stop=3,trim=end_frame={c['n']},setpts=PTS-STARTPTS[v{i}]")
+        dur = c["n"] / fps_out
+        fc.append(f"[{i}:a:0]asetpts=PTS-STARTPTS,aresample=48000,apad,atrim=end={dur:.6f},asetpts=PTS-STARTPTS,"
                   f"afade=t=in:d=0.02,afade=t=out:st={max(dur-0.02,0):.3f}:d=0.02[a{i}]")
     n = len(clips)
     fc.append("".join(f"[v{i}][a{i}]" for i in range(n)) + f"concat=n={n}:v=1:a=1[vc][ac]")
@@ -517,7 +527,7 @@ def render_short(d, meta, words, short, ver, preview, enc):
     pre = ([f"highpass=f={au['highpass']}"] if au.get("highpass") else []) + \
           (["afftdn=nf=-25"] if au.get("denoise") else []) + \
           (["acompressor=threshold=-24dB:ratio=2.5:attack=15:release=250:makeup=2"] if au.get("compress") else [])
-    fc.append(f"[ac]{','.join(pre + ['loudnorm=I=-14:TP=-1.5:LRA=11'])}[aout]")
+    fc.append(f"[ac]{','.join(pre + ['loudnorm=I=-14:TP=-2.0:LRA=11'])}[aout]")
 
     outp = d / "renders" / f"{tag}.mp4"
     venc = (ENCODERS[enc][0] if enc in ENCODERS
@@ -539,6 +549,8 @@ def render_short(d, meta, words, short, ver, preview, enc):
 
     info = {"source_transfer": trc, "tonemapped": hdr, "encoder": enc,
             "planned_s": planned, "final_s": short["duration"], "segments": n,
+            # the exact segments used, so a later standalone QA run checks what was rendered
+            "clips": [{"start": c["start"], "end": c["end"], "n": c["n"]} for c in clips],
             "tighten": tg, "punch_in": bool(short.get("punch_in")), "format": fmt, "audio": au,
             "crop_keyframes": [[(round(t, 2), round(x, 3)) for t, x in kf] for kf in keys]}
     info_f = d / "renders" / f"{tag}_render.json"

@@ -56,8 +56,8 @@ sudo apt install -y python3-venv ffmpeg curl
 |---|---|---|
 | HDR short (10-bit HLG HEVC, tone-mapped to SDR) | **~0.7×** | ~2× (CPU tone mapping dominates) |
 | SDR short | ~0.7× | ~1.2–1.35× (podcast, with speaker tracking) |
-| 3:02 → 2:35 full cleanup (screen recording) | not yet measured | ~0.6× |
-| Transcription, `medium.en`, warm | ~0.18× audio length | ~0.08× audio length |
+| Full-length cleanup (8 min interview / 3 min screen recording) | **~0.35×** | ~0.6× |
+| Transcription, `medium.en` (8 min interview) | ~0.1× audio length | ~0.08× audio length |
 
 ## Install
 
@@ -225,7 +225,7 @@ python bin/plan.py approve podcast-ep12 s1
 - The vertical crop assumes the speaker is on camera. B-roll inserted in the source falls back to a center crop.
 - A 720p source cropped to vertical is upscaled about 2.7×, so it looks soft. Use the highest-resolution original you have.
 - HDR tone mapping runs on the CPU. On Apple Silicon that's fast (~0.7× clip length); on a small Linux CPU it dominates render time. GPU tone mapping via libplacebo works on Linux but produces a different look and is not the default yet.
-- mlx-whisper has no voice-activity filter, so very long silences can occasionally produce a stray phrase. QA's caption and filler checks catch it.
+- Whisper can invent text over music or applause. Every transcription runs a voice-activity detector first (Silero, on both platforms) and drops lines spoken at impossible speed, so this is filtered out, but check captions on clips that cut into music.
 - Whisper occasionally won't transcribe a filler at all and stretches the neighboring word instead. QA catches it, and it's fixed with a clip boundary.
 
 ## Acknowledgements

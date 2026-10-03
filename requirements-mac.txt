@@ -1,6 +1,12 @@
-# macOS / Apple Silicon. Known-good versions, verified together on 2026-10-01
+# macOS / Apple Silicon. Known-good versions, verified together on 2026-10-02
 # (Mac mini M4, macOS 15.4, Python 3.13). Installed by setup.sh instead of requirements.txt.
 mlx-whisper==0.4.3           # Whisper on the Metal GPU
 mlx==0.32.3
 opencv-python-headless==5.0.0.93
 numpy==2.5.3
+# Voice-activity detection (Silero, shipped with faster-whisper). mlx-whisper has none, and
+# without it Whisper invents text over music/applause. Runs in a helper process (see asr.py).
+faster-whisper==1.2.1
+ctranslate2==4.8.2
+onnxruntime==1.30.0
+av==18.1.0                   # 19.x breaks faster-whisper 1.2.1 (see requirements.txt)

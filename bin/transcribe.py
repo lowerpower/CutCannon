@@ -113,6 +113,28 @@ def main():
                 flush()
     flush()
 
+    # Safety net for either backend: Whisper sometimes loops on an invented sentence over music
+    # or applause (seen: one line x31). Such lines are "spoken" at impossible speed, so drop any
+    # line under 80 ms per word (real speech is ~250-400 ms), and back-to-back exact repeats.
+    kept, prev = [], None
+    for L in lines:
+        n = max(1, len(L["text"].split()))
+        too_fast = (L["e"] - L["s"]) / n < 0.08
+        repeat = prev is not None and L["text"] == prev["text"] and (L["e"] - L["s"]) < 0.5
+        if too_fast or repeat:
+            continue
+        kept.append(L)
+        prev = L
+    if len(kept) < len(lines):
+        print(f"dropped {len(lines) - len(kept)} implausible line(s): Whisper repetition/hallucination")
+        remap = {L["id"]: f"L{i:03d}" for i, L in enumerate(kept)}
+        words = [w for w in words if w.get("line") in remap]
+        for w in words:
+            w["line"] = remap[w["line"]]
+        for L in kept:
+            L["id"] = remap[L["id"]]
+        lines = kept
+
     (proj / "transcript.json").write_text(json.dumps({"lines": lines, "words": words}, indent=1))
     with open(proj / "transcript.txt", "w") as f:
         f.write(f"# {proj.name}  source={src.name}  duration={meta['duration']:.1f}s  "
