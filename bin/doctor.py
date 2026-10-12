@@ -84,11 +84,13 @@ try:
         else:
             check(WARN, "NVIDIA GPU", "none found: transcription runs on the CPU (slower)")
     try:
-        import av
-        bad = tuple(int(x) for x in av.__version__.split(".")[:2]) >= (19, 0)
-        check(FAIL if bad else OK, "PyAV", av.__version__,
-              "pip install av==18.1.0   (19.x breaks faster-whisper 1.2.1)")
-    except ImportError:
+        # read the version from package metadata: importing PyAV next to OpenCV on macOS
+        # triggers a duplicate-library warning (the clash asr.py works around)
+        from importlib.metadata import version, PackageNotFoundError
+        av_ver = version("av")
+        bad = tuple(int(x) for x in av_ver.split(".")[:2]) >= (19, 0)
+        check(FAIL if bad else OK, "PyAV", av_ver, "pip install av==18.1.0   (19.x breaks faster-whisper 1.2.1)")
+    except PackageNotFoundError:
         pass
     cache = Path.home() / ".cache" / "huggingface" / "hub"
     model = asr.DEFAULT_MODEL
