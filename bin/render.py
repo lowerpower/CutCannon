@@ -258,7 +258,9 @@ def build_ass(words, clips, short, W, H, path):
                 continue
             if c["start"] <= (w["s"] + w["e"]) / 2 <= c["end"]:
                 t = fix(w["w"])
-                if t.startswith("-") and out_words:  # "anti" + "-AI" -> "anti-AI" on one card
+                # continuation tokens join the previous word on one card:
+                # "anti" + "-AI" -> "anti-AI", "15" + ",000" -> "15,000"
+                if out_words and (t.startswith("-") or (t.startswith(",") and t[1:2].isdigit())):
                     out_words[-1]["w"] += t
                     out_words[-1]["e"] = min(w["e"], c["end"]) - c["start"] + off
                     continue
@@ -266,6 +268,21 @@ def build_ass(words, clips, short, W, H, path):
                                   "e": min(w["e"], c["end"]) - c["start"] + off})
         off += c["end"] - c["start"]
     total = off
+
+    # multi-word fixes, e.g. {"post gres": "Postgres"}: Whisper split one name into two words.
+    # The matching run of words becomes one caption word (timing spans the run).
+    for key, rep in short.get("word_fixes", {}).items():
+        keys = key.lower().split()
+        if len(keys) < 2:
+            continue
+        i = 0
+        while i + len(keys) <= len(out_words):
+            run = out_words[i:i + len(keys)]
+            if [x["w"].lower().strip(".,?!;:") for x in run] == keys:
+                last = run[-1]["w"]
+                out_words[i:i + len(keys)] = [{"w": rep + last[len(last.rstrip(".,?!;:")):],
+                                               "s": run[0]["s"], "e": run[-1]["e"]}]
+            i += 1
 
     chunks, cur = [], []
     for w in out_words:
