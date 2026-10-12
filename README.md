@@ -43,8 +43,8 @@ the backend for you.
 | Agent | Claude chat + NoBGP MCP connector (remote) | or [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) on the machine |
 
 ```bash
-# macOS: Homebrew's default ffmpeg lacks the subtitles and zscale filters, so use the full build
-brew tap homebrew-ffmpeg/ffmpeg && brew install homebrew-ffmpeg/ffmpeg/ffmpeg --with-zimg
+# macOS: Homebrew's plain ffmpeg lacks the subtitles and zscale filters; ffmpeg-full has them
+brew install ffmpeg-full
 
 # Ubuntu
 sudo apt install -y python3-venv ffmpeg curl
@@ -66,6 +66,8 @@ git clone https://github.com/lowerpower/cutcannon.git
 cd cutcannon
 ./setup.sh
 ```
+
+If something breaks later (say, after a `brew upgrade`), run `python bin/doctor.py`: it checks ffmpeg, the GPU, the speech model and the rest, and prints the exact fix for anything wrong.
 
 `setup.sh` is idempotent and uses no `sudo`. It creates `.venv/`, installs CUDA wheels only if an NVIDIA GPU is present, downloads the Montserrat font and the YuNet face model, installs the two skills into `~/.claude/skills/` (where Claude Code finds them), and finishes with a self-test:
 
@@ -116,6 +118,7 @@ cutcannon/
 ├── requirements*.txt        pinned, verified versions: Linux, -cuda (NVIDIA only), -mac (Apple Silicon)
 ├── bin/
 │   ├── projects.py          status of every project (what's new, transcribed, rendered, QA)
+│   ├── doctor.py            checks the machine, says exactly what to fix (run anytime)
 │   ├── asr.py               speech-to-text backends: mlx-whisper (Apple) / faster-whisper (CUDA, CPU)
 │   ├── transcribe.py        recording → sentence lines, word timings, fillers
 │   ├── plan.py              versioned plans: save / list / show / undo / use / approve
@@ -231,6 +234,10 @@ python bin/plan.py approve podcast-ep12 s1
 ## Acknowledgements
 
 Inspired by the workflow in Single Grain's open-source `video-editor`; this is an independent implementation. Built on [faster-whisper](https://github.com/SYSTRAN/faster-whisper), [FFmpeg](https://ffmpeg.org/), [OpenCV](https://opencv.org/) with the [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) face detector, and the [Montserrat](https://github.com/JulietaUla/Montserrat) typeface (SIL OFL).
+
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md).
 
 ## License
 

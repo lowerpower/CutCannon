@@ -38,7 +38,10 @@ Always **propose first and render only what the user picks**, unless they said t
 Read the whole `transcript.txt`, plus the speaker `.vtt` if there is one. A clip qualifies only if:
 - it opens on (or can be re-ordered to open on) a line that works as a hook,
 - it holds one idea with a payoff or punchline, and stands alone with no "as I said earlier",
-- it fits 20-55 s after tightening.
+- it fits 20-55 s after tightening,
+- it doesn't re-tell something already said. When one speaker repeats a story or setup another
+  just told (common in interviews), keep the better telling and cut the repeat, inside a clip and
+  across proposals: never propose two clips that tell the same story.
 
 **Counts**
 - **auto**: propose every clip that clears that bar, strongest first, capped at 8. As a guide, expect
@@ -47,7 +50,13 @@ Read the whole `transcript.txt`, plus the speaker `.vtt` if there is one. A clip
 - **A number N**: propose the best N. If fewer than N are strong, say so rather than padding. If more
   are, add up to 3 runners-up in one line each.
 
-**Per proposed clip, give:** rank, hook-card text, approximate timecode range, who speaks, one or two
+**Score every proposed clip 1-5 on:** hook (does the first line stop a scroll), flow (does it hold
+together with no dead spots), value (does the viewer leave with something: a laugh, an idea, a
+story), and shareability (would someone send it to a friend). Rank by the total and show the scores,
+e.g. `hook 5 · flow 4 · value 4 · share 5 = 18/20`. Score honestly: a 12 is fine to list as a
+runner-up, but never inflate scores to fill a requested count.
+
+**Per proposed clip, give:** rank, scores, hook-card text, approximate timecode range, who speaks, one or two
 sentences on why it works, estimated length, and any **flags**:
 - names a company or person in an unverified or negative claim (propose cutting around the name),
 - inserted footage or B-roll in the range (possible third-party video, and no face to track),
@@ -130,6 +139,8 @@ renders/). Renders stay in the project folder; never copy them elsewhere unless 
    Approval is a record, not an action. Do not upload, post, schedule, or copy renders anywhere unless the user explicitly asks for that specific action.
 
 ## Troubleshooting
+- Anything environmental (missing ffmpeg filter, no GPU, import or model errors): run
+  `python bin/doctor.py` and follow the fixes it prints.
 - `REJECTED:` from save lists exact problems (unknown line id, >60s, bad reframe) — fix the draft and save again.
 - Wrong crop: set `reframe` to `left`/`right`/`center` for that short.
 - Captions drift: re-transcribe with `--model medium.en`.

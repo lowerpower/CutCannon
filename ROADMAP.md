@@ -1,0 +1,51 @@
+# CutCannon roadmap
+
+What's planned, roughly in order. Items move to **Done** as they ship.
+
+## Next: foundation
+
+- **Test suite + CI.** Automated tests on generated clips: A/V sync across many cuts, 23.976 /
+  30 / 59.94 fps sources, HDR tone mapping, B-roll clips with no speech, and the hallucination
+  guards. Plus an optional end-to-end run on a small set of public-domain footage with measurable
+  framing criteria (no jitter, no cut-off faces, speaker on screen while speaking). GitHub Actions
+  runs the CPU path on every push.
+- **Word-index cut points.** Let plans cut mid-sentence by word position
+  (`{"from": "L140", "from_word": 8}`) instead of hand-computed seconds. Exact, and far less
+  error-prone than timestamp arithmetic.
+
+## Then: framing
+
+- **Fit mode.** Show the whole 16:9 frame inside a 9:16 video over a blurred copy of itself, for
+  two-shots where both people matter, screen recordings, and wide B-roll.
+- **Active-speaker tracking.** `track: "speaker"` follows whoever is talking, detected from lip
+  motion, with hysteresis so the crop doesn't flicker. Replaces per-clip `left` / `right`.
+- **Square and 4:5 exports** alongside 9:16, for feeds that prefer them.
+
+## Then: output and polish
+
+- **Post kit on every render.** Cover image (hook frame, optional headline), caption file (`.srt`),
+  `post.md` (titles, captions, hashtags, credits, alt text, checklist) and a machine-readable
+  `post.json`. Chapter timestamps for full-length cleanups.
+- **Caption style presets** (bold pop, karaoke fill, clean lower third, boxed), per show.
+- **Watermark / logo overlay** with position, size and opacity.
+- **Import from a URL** (yt-dlp), for content you own or have the rights to process.
+- **Sequential reels.** Split a whole video into a numbered series of consecutive clips.
+- **Project "next step"** in `projects.py` (e.g. "rendered, not approved"), a `CHANGELOG.md`, and
+  a "verified / not verified" section in the README.
+
+## Non-goals
+
+- **Posting to social platforms.** CutCannon makes files; nothing posts until you do it yourself.
+- **Synthetic voices or AI-generated footage.** It edits real recordings.
+- **A web UI.** You drive it in plain English from Claude.
+
+## Done
+
+- Doctor command (`bin/doctor.py`), and `ffmpeg-full` on macOS
+- Clip proposals scored (hook, flow, value, shareability); re-told stories dropped
+- Apple Silicon support: mlx-whisper on Metal, VideoToolbox encode/decode
+- Voice-activity detection on every transcription; repetition-loop filter
+- Frame-exact segment trimming at the source frame rate (no A/V drift on any frame rate)
+- B-roll clips with no speech kept whole
+- Speaker tracking through camera switches; full-frame cleanup mode with motion-guarded pause cuts
+- Filler and pause tightening; HDR to SDR; two-pass -14 LUFS loudness; automatic QA on every render
