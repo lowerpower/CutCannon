@@ -7,6 +7,7 @@
   plan.py undo    <proj>                               CURRENT -> parent version
   plan.py use     <proj> vN                            CURRENT -> vN
   plan.py approve <proj> [short_id ...]                record approval of CURRENT
+  plan.py words   <proj> L140 [L142]                   numbered words of lines (for word cuts)
 
 Draft format (Claude writes this):
 {
@@ -18,6 +19,8 @@ Draft format (Claude writes this):
     "hook_seconds": 2.5,
     "reframe": "face" | "center" | "left" | "right",
     "clips": [ {"from": "L004", "to": "L007"},        # whole transcript lines
+               {"from": "L140", "from_word": 8,        # or start/end mid-line, by word
+                "to": "L142", "to_word": 5},          #   number (1-based; see `words`)
                {"start": 41.20, "end": 47.85} ],      # or exact seconds
     "trim": {"head": 0.0, "tail": 0.0},              # optional, applied per clip
     "tighten": {"fillers": true, "max_pause": 0.2},   # default: cut um/uh, cap pauses
@@ -82,11 +85,57 @@ def load(d, v):
     return json.loads((d / "plans" / f"v{v:03d}.json").read_text())
 
 
+def line_words(words, lid):
+    """A line's words in time order, fillers included (they count toward word numbers)."""
+    return [w for w in words if w.get("line") == lid]
+
+
+def word_edge(words, pos, lid, n, side):
+    """Cut time just before word n (side 'in') or just after it (side 'out') of line lid.
+    Pads like a line clip but never past the halfway point to the neighbouring word, so the
+    neighbour can't leak into the clip. Returns (seconds, problem)."""
+    lw = line_words(words, lid)
+    if not isinstance(n, int) or isinstance(n, bool):
+        return None, f"word number must be a whole number, got {n!r}"
+    if not 1 <= n <= len(lw):
+        return None, f"{lid} has {len(lw)} words; word {n!r} is out of range (1..{len(lw)})"
+    w = lw[n - 1]
+    i = pos[id(w)]
+    if side == "in":
+        prev = words[i - 1] if i > 0 else None
+        return max(w["s"] - PAD, (prev["e"] + w["s"]) / 2 if prev else 0.0), None
+    nxt = words[i + 1] if i + 1 < len(words) else None
+    return min(w["e"] + PAD, (w["e"] + nxt["s"]) / 2 if nxt else w["e"] + PAD), None
+
+
+def context(words, t, k=3):
+    """The words either side of a cut time: 'came, he | was just'."""
+    before = [w["w"] for w in words if (w["s"] + w["e"]) / 2 < t][-k:]
+    after = [w["w"] for w in words if (w["s"] + w["e"]) / 2 >= t][:k]
+    return f"{' '.join(before)} | {' '.join(after)}"
+
+
+def cut_report(d, plan, res):
+    """For clips not cut on whole lines, the words around each edge, so a wrong word number
+    or a mis-typed second is visible before rendering."""
+    words = sorted(json.loads((d / "transcript.json").read_text())["words"], key=lambda w: w["s"])
+    out = []
+    for sh, r in zip(plan.get("shorts", []), res["shorts"]):
+        for i, (c, rc) in enumerate(zip(sh.get("clips", []), r["clips"]), 1):
+            if "from" in c and "from_word" not in c and "to_word" not in c:
+                continue
+            out.append(f"  {sh['id']} clip {i}: in  [{context(words, rc['start'])}]")
+            out.append(f"  {sh['id']} clip {i}: out [{context(words, rc['end'])}]")
+    return out
+
+
 def resolve(d, plan):
     """Turn line refs into seconds; return (resolved_plan, problems)."""
     tr = json.loads((d / "transcript.json").read_text())
     meta = json.loads((d / "meta.json").read_text())
     lines = {L["id"]: L for L in tr["lines"]}
+    words = sorted(tr["words"], key=lambda w: w["s"])
+    pos = {id(w): i for i, w in enumerate(words)}
     probs, out = [], []
     ids = set()
     for sh in plan.get("shorts", []):
@@ -98,12 +147,28 @@ def resolve(d, plan):
         frozen = "_resolved" in sh
         clips = [dict(c) for c in sh["_resolved"]] if frozen else []
         for c in ([] if frozen else sh.get("clips", [])):
+            if ("from_word" in c or "to_word" in c) and "from" not in c:
+                probs.append(f"{sid}: from_word/to_word need a \"from\" line in {c}")
+                continue
             if "from" in c:
                 a, b = lines.get(c["from"]), lines.get(c.get("to", c["from"]))
                 if not a or not b:
                     probs.append(f"{sid}: unknown line in {c}")
                     continue
                 s, e = a["s"] - PAD, b["e"] + PAD
+                bad = False
+                for key, lid, side in (("from_word", a["id"], "in"), ("to_word", b["id"], "out")):
+                    if key in c:
+                        t, p = word_edge(words, pos, lid, c[key], side)
+                        if p:
+                            probs.append(f"{sid}: {key}: {p}")
+                            bad = True
+                        elif side == "in":
+                            s = t
+                        else:
+                            e = t
+                if bad:
+                    continue
             else:
                 s, e = float(c["start"]), float(c["end"])
             s = max(0.0, s + trim.get("head", 0.0))
@@ -167,6 +232,10 @@ def main():
         print(f"saved v{v:03d} (parent v{rec['parent'] or 0:03d}) - CURRENT")
         for s in res["shorts"]:
             print(f"  {s['id']:4} {s['duration']:5.1f}s  {len(s['clips'])} clips  hook: {s.get('hook_text','')!r}")
+        cuts = cut_report(d, draft, res)
+        if cuts:
+            print("mid-line cuts (check the words either side of each |):")
+            print("\n".join(cuts))
 
     elif cmd == "list":
         cur = current(d)
@@ -178,10 +247,29 @@ def main():
 
     elif cmd == "show":
         v = int(args[0].lstrip("v")) if args else current(d)
-        res, probs = resolve(d, load(d, v))
+        plan = load(d, v)
+        res, probs = resolve(d, plan)
         print(json.dumps(res, indent=2))
         for p in probs:
             print("WARN", p, file=sys.stderr)
+        cuts = cut_report(d, plan, res)
+        if cuts:
+            print("mid-line cuts (words around each edge, current transcript):\n" + "\n".join(cuts),
+                  file=sys.stderr)
+
+    elif cmd == "words":
+        if not args:
+            sys.exit("usage: plan.py words <proj> L140 [L142]")
+        tr = json.loads((d / "transcript.json").read_text())
+        ids = [L["id"] for L in tr["lines"]]
+        if any(a not in ids for a in args[:2]):
+            sys.exit(f"unknown line in {args[:2]}")
+        i, j = ids.index(args[0]), ids.index(args[-1] if len(args) > 1 else args[0])
+        words = sorted(tr["words"], key=lambda w: w["s"])
+        for lid in ids[i:j + 1]:
+            lw = line_words(words, lid)
+            toks = [f"{n}:{'(' + w['w'] + ')' if w.get('f') else w['w']}" for n, w in enumerate(lw, 1)]
+            print(f"{lid}  " + " ".join(toks))
 
     elif cmd == "undo":
         cur = current(d)
