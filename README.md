@@ -135,6 +135,8 @@ cutcannon/
         ├── transcript.json / transcript.txt / meta.json
         ├── plans/v001.json … CURRENT
         ├── renders/<id>_vNNN.mp4  _qa.json  _frames.png  _render.json
+        │          + post kit: _cover.jpg  .srt  _post.json  _post.md
+        ├── post.json            shared post details: credits, source title, episode link
         └── approvals.json
 ```
 

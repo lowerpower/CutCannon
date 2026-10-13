@@ -10,6 +10,8 @@ projects/<name>/
   transcript.json / .txt    word-level transcript; fillers shown as (um)
   plans/v001.json … CURRENT versioned edit plans
   renders/                  <id>_vNNN.mp4, _qa.json, _frames.png, _render.json
+                            post kit: _cover.jpg, .srt, _post.json (the copy), _post.md
+  post.json                 shared post details: credits, source title, episode link
   approvals.json            what you approved (nothing is ever posted)
 ```
 
