@@ -26,7 +26,7 @@ record ─▶ transcribe ─▶ plan ─▶ render ─▶ QA ─▶ tweak / undo
 - **Color.** iPhone HDR (HLG/PQ) is tone-mapped to SDR BT.709, so it looks right everywhere.
 - **Audio.** Two-pass loudnorm to −14 LUFS / −1.5 dBTP, with optional compression, high-pass, and denoise.
 - **Post kit** per short: cover image, `.srt` caption file, and `_post.md` with title, description and tags for YouTube Shorts, TikTok and Instagram Reels (from a `_post.json` Claude writes; the episode link is set once per project).
-- **Automatic QA** on every render: A/V sync measured on decoded content, duration, color, loudness, caption coverage, hook card, fillers remaining (the output is re-transcribed), and framing. Each render also gets a contact sheet.
+- **Automatic QA** on every render: A/V sync measured on decoded content, duration, color, loudness, caption coverage, hook card, fillers remaining (the output is re-transcribed), joins (clipped, doubled or stray words at every cut), and framing. Each render also gets a contact sheet.
 - **Local and private.** Recordings, transcripts, and renders stay on your disk. There is no posting code.
 
 ## Requirements
@@ -125,7 +125,7 @@ cutcannon/
 │   ├── transcribe.py        recording → sentence lines, word timings, fillers
 │   ├── plan.py              versioned plans: save / list / show / undo / use / approve / words
 │   ├── render.py            tighten → crop/track → captions + hook → encode → loudnorm → QA
-│   └── qa.py                8 checks + contact sheet
+│   └── qa.py                9 checks + contact sheet
 ├── skills/
 │   ├── cutcannon-idea-picker/SKILL.md
 │   └── cutcannon-editor/SKILL.md
@@ -211,7 +211,7 @@ python bin/render.py product-demo --preview   # half resolution, fast
 
 ```
 s3_v004.mp4  49.6s -> 46.8s  (9 segments, punch-in)  nvenc
-  QA PASS: av_sync=ok duration=ok color=ok loudness=ok captions=ok hook_card=ok fillers=ok framing=ok
+  QA PASS: av_sync=ok duration=ok color=ok loudness=ok captions=ok hook_card=ok fillers=ok joins=ok framing=ok
   time: prep 22.9s | encode 17.4s | loudnorm 8.3s | qa 10.2s | total 58.8s = 1.21x the video length
 ```
 
@@ -224,6 +224,7 @@ s3_v004.mp4  49.6s -> 46.8s  (9 segments, punch-in)  nvenc
 | `captions` | ≥ 95% of speech captioned (n/a when captions are off) |
 | `hook_card` | present if and only if the plan has one |
 | `fillers` | ≤ 1 um/uh found when the output is re-transcribed |
+| `joins` | at every cut, the re-transcription has no word missing (clipped), extra (a cut-off fragment or stray word) or doubled. Repeats the speaker really said and mis-hearings are listed but don't fail. The words either side of every edit are listed in `_qa.json` for review. n/a for renders older than segment logging |
 | `framing` | tracked face within the middle 60% of a vertical frame |
 
 ### 5. Review, undo, approve

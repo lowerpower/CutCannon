@@ -2,13 +2,7 @@
 
 What's planned, roughly in order. Items move to **Done** as they ship.
 
-## Next: cuts
-
-- **Join audit.** Before rendering, check that every clip starts and ends on a complete thought.
-  After rendering, re-transcribe around each join and flag clipped words, doubled words, or a
-  thought that doesn't connect. Becomes a QA check alongside the existing eight.
-
-## Then: framing
+## Next: framing
 
 - **Fit mode.** Show the whole 16:9 frame inside a 9:16 video over a blurred copy of itself, for
   two-shots where both people matter, screen recordings, and wide B-roll.
@@ -57,6 +51,8 @@ What's planned, roughly in order. Items move to **Done** as they ship.
 
 ## Done
 
+- Join audit: mid-sentence warnings on save; `joins` QA check (clipped / doubled / stray words at
+  every cut) and the words either side of every edit for review
 - Word-index cut points: `from_word` / `to_word`, `plan.py words`, words-either-side report on save
 - Post kit (`bin/postkit.py`): cover, `.srt`, YouTube / TikTok / Instagram copy from `_post.json`
 - Doctor command (`bin/doctor.py`), and `ffmpeg-full` on macOS

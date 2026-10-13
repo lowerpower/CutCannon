@@ -129,6 +129,43 @@ def cut_report(d, plan, res):
     return out
 
 
+SENT_END = (".", "?", "!", "...", "…")
+THOUGHT_GAP = 0.7  # a pause this long also counts as a thought boundary
+SPLICE_SKIP = 4    # clips this few words apart are one sentence with a stumble cut out
+
+
+def boundary_report(d, res):
+    """Clips that start or end mid-sentence. Sometimes that's the point (a short often opens
+    on the second half of a sentence), so these are warnings to look at, not rejections."""
+    words = sorted((w for w in json.loads((d / "transcript.json").read_text())["words"]
+                    if not w.get("f")), key=lambda w: w["s"])
+    out = []
+    for sh in res["shorts"]:
+        spans = []
+        for c in sh["clips"]:
+            inside = [k for k, w in enumerate(words) if c["start"] <= (w["s"] + w["e"]) / 2 <= c["end"]]
+            spans.append((inside[0], inside[-1]) if inside else None)
+        for i, (c, sp) in enumerate(zip(sh["clips"], spans)):
+            if not sp:
+                continue  # picture-only clip
+            a, b = sp
+            # a sentence that carries on into the next clip after skipping a stutter or a few
+            # words (or that this clip picks up from the previous one) is a splice, not a break
+            before = spans[i - 1] if i > 0 else None
+            after = spans[i + 1] if i + 1 < len(spans) else None
+            spliced_in = before and 0 < a - before[1] <= SPLICE_SKIP + 1
+            spliced_out = after and 0 < after[0] - b <= SPLICE_SKIP + 1
+            prev = words[a - 1] if a > 0 else None
+            nxt = words[b + 1] if b + 1 < len(words) else None
+            if (prev and not spliced_in and not prev["w"].endswith(SENT_END)
+                    and words[a]["s"] - prev["e"] < THOUGHT_GAP):
+                out.append(f"  {sh['id']} clip {i + 1}: starts mid-sentence [{context(words, c['start'])}]")
+            if (nxt and not spliced_out and not words[b]["w"].endswith(SENT_END)
+                    and nxt["s"] - words[b]["e"] < THOUGHT_GAP):
+                out.append(f"  {sh['id']} clip {i + 1}: ends mid-sentence   [{context(words, c['end'])}]")
+    return out
+
+
 def resolve(d, plan):
     """Turn line refs into seconds; return (resolved_plan, problems)."""
     tr = json.loads((d / "transcript.json").read_text())
@@ -236,6 +273,10 @@ def main():
         if cuts:
             print("mid-line cuts (check the words either side of each |):")
             print("\n".join(cuts))
+        warn = boundary_report(d, res)
+        if warn:
+            print("WARN incomplete thoughts (fine if intended; otherwise move the edge):")
+            print("\n".join(warn))
 
     elif cmd == "list":
         cur = current(d)
@@ -256,6 +297,9 @@ def main():
         if cuts:
             print("mid-line cuts (words around each edge, current transcript):\n" + "\n".join(cuts),
                   file=sys.stderr)
+        warn = boundary_report(d, res)
+        if warn:
+            print("WARN incomplete thoughts:\n" + "\n".join(warn), file=sys.stderr)
 
     elif cmd == "words":
         if not args:

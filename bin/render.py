@@ -198,7 +198,7 @@ def tighten(clips, words, env, fillers=True, max_pause=0.2, motion=None):
     recordings), a pause is only cut when the screen is also still during it."""
     segs = []
     for c in clips:
-        extra = {k: c[k] for k in ("track",) if k in c}
+        extra = {k: c[k] for k in ("track", "clip") if k in c}
         ws = [w for w in words if c["start"] <= (w["s"] + w["e"]) / 2 <= c["end"]]
         keep = [w for w in ws if not (fillers and w.get("f"))]
         if not keep:
@@ -484,9 +484,10 @@ def render_short(d, meta, words, short, ver, preview, enc):
         if fmt == "source":
             motion, mbox = screen_motion(src)
             print(f"    screen-motion guard on (webcam mask {'at ' + str(tuple(round(v, 2) for v in mbox)) if mbox else 'none'})")
-        segs = tighten(short["clips"], words, audio_env(src), tg.get("fillers", False), tg.get("max_pause"), motion)
+        segs = tighten([{**c, "clip": i} for i, c in enumerate(short["clips"])],
+                       words, audio_env(src), tg.get("fillers", False), tg.get("max_pause"), motion)
     else:
-        segs = [dict(c) for c in short["clips"]]
+        segs = [{**c, "clip": i} for i, c in enumerate(short["clips"])]
     # 2. snap every cut to a source frame so audio and video trims are identical
     clips = []
     for c in segs:
@@ -576,7 +577,9 @@ def render_short(d, meta, words, short, ver, preview, enc):
     info = {"source_transfer": trc, "tonemapped": hdr, "encoder": enc,
             "planned_s": planned, "final_s": short["duration"], "segments": n,
             # the exact segments used, so a later standalone QA run checks what was rendered
-            "clips": [{"start": c["start"], "end": c["end"], "n": c["n"]} for c in clips],
+            # "clip" = which plan clip a segment came from: a join between two different plan
+            # clips is an edit (QA lists its words for review); within one clip it's a tighten cut
+            "clips": [{"start": c["start"], "end": c["end"], "n": c["n"], "clip": c.get("clip")} for c in clips],
             "tighten": tg, "punch_in": bool(short.get("punch_in")), "format": fmt, "audio": au,
             "crop_keyframes": [[(round(t, 2), round(x, 3)) for t, x in kf] for kf in keys]}
     info_f = d / "renders" / f"{tag}_render.json"
