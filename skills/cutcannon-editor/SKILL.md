@@ -93,13 +93,7 @@ renders/). Renders stay in the project folder; never copy them elsewhere unless 
    }]}
    ```
    - `clips` play in the order listed; you may reorder to put the strongest line first.
-   - When a cut must fall mid-sentence, cut by word, not by computed seconds: run
-     `python bin/plan.py words <slug> L140 L141` to see each line's numbered words (fillers in
-     brackets count), then use `{"from": "L140", "from_word": 11, "to": "L141", "to_word": 8}`.
-     `from_word` starts at that word; `to_word` ends after it. Either may be omitted to use the
-     whole line edge. After `save`, read the "mid-line cuts" lines it prints (`words before | words
-     after`) and fix any edge that splits a phrase wrongly. Use `{"start": s, "end": e}` seconds
-     only for picture-only cuts with no speech at the edge (B-roll, reactions).
+   - Use `{"start": s, "end": e}` in seconds when a cut must fall mid-sentence.
    - `reframe`: `face` (auto, static crop per clip), or `center` / `left` / `right`.
    - `word_fixes`: caption corrections for mis-heard words (case-insensitive).
    - Fillers appear in the transcript as `(um,)` / `(uh)`. With the defaults you do NOT cut them by hand: `"tighten": {"fillers": true, "max_pause": 0.2}` removes every um/uh and caps pauses at 0.2 s at render time, and `"punch_in": true` alternates a 108% zoom at each cut to hide jump cuts. Set `"punch_in": false` for a calmer look, or `"tighten": {"fillers": false, "max_pause": null}` to keep the speaker's natural rhythm.

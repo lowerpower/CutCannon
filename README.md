@@ -123,7 +123,7 @@ cutcannon/
 │   ├── doctor.py            checks the machine, says exactly what to fix (run anytime)
 │   ├── asr.py               speech-to-text backends: mlx-whisper (Apple) / faster-whisper (CUDA, CPU)
 │   ├── transcribe.py        recording → sentence lines, word timings, fillers
-│   ├── plan.py              versioned plans: save / list / show / undo / use / approve / words
+│   ├── plan.py              versioned plans: save / list / show / undo / use / approve
 │   ├── render.py            tighten → crop/track → captions + hook → encode → loudnorm → QA
 │   └── qa.py                8 checks + contact sheet
 ├── skills/
@@ -158,35 +158,27 @@ python bin/transcribe.py ~/Downloads/take.mov --name x  # or import: the file is
 
 ### 2. Plan
 
-Claude writes a draft and saves it as a new version. Clips are transcript lines, lines cut at a
-word, or exact seconds:
+Claude writes a draft and saves it as a new version. Clips are transcript lines or exact seconds:
 
 ```json
 { "shorts": [{
     "id": "s1",
     "hook_text": "The bug took 3 weeks. The fix took 1 line.",
     "clips": [
-      { "from": "L140", "from_word": 11, "to": "L141", "track": "left" },
-      { "from": "L148", "to": "L152",                   "track": "right" },
-      { "start": 732.48, "end": 739.08,                  "track": "right" }
+      { "start": 646.40, "end": 656.64, "track": "left" },
+      { "from": "L148", "to": "L152",   "track": "right" }
     ],
     "word_fixes": { "postgress": "Postgres" }
 }]}
 ```
 
 ```bash
-python bin/plan.py words podcast-ep12 L140 L141   # numbered words, for word cuts
-python bin/plan.py save  podcast-ep12 draft.json --note "why this version exists"
+python bin/plan.py save podcast-ep12 draft.json --note "why this version exists"
 ```
-
-`words` prints each line as `1:and 2:I 3:think …`, fillers in brackets (they count). `from_word`
-starts the clip at that word of the `from` line, `to_word` ends it after that word of the `to`
-line. `save` and `show` print the words either side of every mid-line cut, so a wrong number is
-obvious before anything renders.
 
 | Field | Default | Meaning |
 |---|---|---|
-| `clips` | | played in order; `{"from","to"}` line ids, optionally `from_word` / `to_word` (1-based), or `{"start","end"}` seconds |
+| `clips` | | played in order; `{"from","to"}` line ids or `{"start","end"}` seconds |
 | `clips[].track` | `largest` | whose face the vertical crop follows: `left`, `right`, `largest` |
 | `format` | `vertical` | `vertical` = 1080×1920 short (≤ 60 s); `source` = original frame, any length |
 | `hook_text`, `hook_seconds` | `""`, 2.5 | on-screen hook card |
