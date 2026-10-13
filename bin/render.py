@@ -241,7 +241,11 @@ def ts(t):
     return f"{int(h)}:{int(m):02d}:{s:05.2f}"
 
 
-def build_ass(words, clips, short, W, H, path):
+def caption_words(words, clips, short):
+    """Caption words on the OUTPUT timeline for a list of segments: fillers dropped, word_fixes
+    applied (single and multi-word), continuation tokens merged. Shared by the burned-in
+    captions (build_ass) and the post kit's .srt (postkit.py), so they always agree.
+    Returns (words, total_seconds)."""
     fixes = {k.lower(): v for k, v in short.get("word_fixes", {}).items()}
 
     def fix(w):
@@ -283,6 +287,11 @@ def build_ass(words, clips, short, W, H, path):
                 out_words[i:i + len(keys)] = [{"w": rep + last[len(last.rstrip(".,?!;:")):],
                                                "s": run[0]["s"], "e": run[-1]["e"]}]
             i += 1
+    return out_words, total
+
+
+def build_ass(words, clips, short, W, H, path):
+    out_words, total = caption_words(words, clips, short)
 
     chunks, cur = [], []
     for w in out_words:

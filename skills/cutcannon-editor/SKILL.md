@@ -135,7 +135,17 @@ renders/). Renders stay in the project folder; never copy them elsewhere unless 
    - `python bin/plan.py undo <slug>` — back to parent version (nothing deleted)
    - `python bin/plan.py use <slug> vN` — jump to any version
 
-5. **Approve** only when the user says so: `python bin/plan.py approve <slug> [ids]`.
+5. **Post kit**: when the user is happy with a short, or asks for titles, descriptions or tags,
+   write `renders/<tag>_post.json` (`<tag>` = the newest render, e.g. `s3_v004`) and run
+   `python bin/postkit.py <slug> [ids]`. It writes the cover (`_cover.jpg`), the caption file (`.srt`,
+   same words and fixes as the burned-in captions) and `_post.md`. JSON fields: `source_range`;
+   `youtube` {`title` (max 100 chars), `description`, `hashtags` (start with #Shorts), `tags` [list]};
+   `tiktok` {`caption` incl. 3-5 hashtags}; `instagram` {`caption`, `hashtags` (3-5)}; `alt_text`;
+   `pinned_comment`; `notes` (flags: consent, third-party footage, wording). Shared details (credits,
+   source title, `episode_link`) go once in `projects/<slug>/post.json`, so the episode URL is set in
+   one place. Write copy that matches what the clip actually says; never promise what it doesn't show.
+
+6. **Approve** only when the user says so: `python bin/plan.py approve <slug> [ids]`.
    Approval is a record, not an action. Do not upload, post, schedule, or copy renders anywhere unless the user explicitly asks for that specific action.
 
 ## Troubleshooting

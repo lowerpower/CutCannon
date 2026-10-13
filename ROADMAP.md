@@ -23,9 +23,8 @@ What's planned, roughly in order. Items move to **Done** as they ship.
 
 ## Then: output and polish
 
-- **Post kit on every render.** Cover image (hook frame, optional headline), caption file (`.srt`),
-  `post.md` (titles, captions, hashtags, credits, alt text, checklist) and a machine-readable
-  `post.json`. Chapter timestamps for full-length cleanups.
+- **Chapters and cover headlines.** Chapter timestamps in the post kit for full-length cleanups;
+  optional headline text on the cover image.
 - **Caption style presets** (bold pop, karaoke fill, clean lower third, boxed), per show.
 - **Watermark / logo overlay** with position, size and opacity.
 - **Import from a URL** (yt-dlp), for content you own or have the rights to process.
@@ -41,6 +40,7 @@ What's planned, roughly in order. Items move to **Done** as they ship.
 
 ## Done
 
+- Post kit (`bin/postkit.py`): cover, `.srt`, YouTube / TikTok / Instagram copy from `_post.json`
 - Doctor command (`bin/doctor.py`), and `ffmpeg-full` on macOS
 - Clip proposals scored (hook, flow, value, shareability); re-told stories dropped
 - Apple Silicon support: mlx-whisper on Metal, VideoToolbox encode/decode

@@ -25,6 +25,7 @@ record ─▶ transcribe ─▶ plan ─▶ render ─▶ QA ─▶ tweak / undo
 - **Captions and hook card.** Burned in, word-by-word highlighted, with per-plan `word_fixes` for misheard names.
 - **Color.** iPhone HDR (HLG/PQ) is tone-mapped to SDR BT.709, so it looks right everywhere.
 - **Audio.** Two-pass loudnorm to −14 LUFS / −1.5 dBTP, with optional compression, high-pass, and denoise.
+- **Post kit** per short: cover image, `.srt` caption file, and `_post.md` with title, description and tags for YouTube Shorts, TikTok and Instagram Reels (from a `_post.json` Claude writes; the episode link is set once per project).
 - **Automatic QA** on every render: A/V sync measured on decoded content, duration, color, loudness, caption coverage, hook card, fillers remaining (the output is re-transcribed), and framing. Each render also gets a contact sheet.
 - **Local and private.** Recordings, transcripts, and renders stay on your disk. There is no posting code.
 
@@ -118,6 +119,7 @@ cutcannon/
 ├── requirements*.txt        pinned, verified versions: Linux, -cuda (NVIDIA only), -mac (Apple Silicon)
 ├── bin/
 │   ├── projects.py          status of every project (what's new, transcribed, rendered, QA)
+│   ├── postkit.py           cover, caption file and YouTube / TikTok / Instagram copy per short
 │   ├── doctor.py            checks the machine, says exactly what to fix (run anytime)
 │   ├── asr.py               speech-to-text backends: mlx-whisper (Apple) / faster-whisper (CUDA, CPU)
 │   ├── transcribe.py        recording → sentence lines, word timings, fillers
