@@ -136,7 +136,11 @@ def join_audit(words, short, heard, total):
         return {"joins": None, "edits": None, "issues": [], "pass": None,
                 "note": "render predates segment logging - re-render to audit joins"}
     expected, _ = R.caption_words(words, clips, {**short, "word_fixes": {}})
-    exp, got = _tokens(expected), _tokens([w for w in heard if not FILLER.match(w["w"])])
+    # fillers the plan asked to cut stay in: one left at a cut shows up as a 'filler' note.
+    # With filler cutting off they're kept on purpose and never captioned, so drop them.
+    cut_fillers = bool((short.get("tighten") or {}).get("fillers"))
+    exp = _tokens(expected)
+    got = _tokens([w for w in heard if cut_fillers or not FILLER.match(w["w"])])
     # join times on the output timeline (render segments are exactly n frames when known)
     k = total / sum(c["n"] for c in clips)
     lens = [c["n"] * k for c in clips]
@@ -161,6 +165,8 @@ def join_audit(words, short, heard, total):
         if not js:
             continue
         kind = {"delete": "missing", "insert": "extra", "replace": "changed"}[op]
+        if op == "insert" and all(FILLER.match(x[0]) for x in extra):
+            kind = "filler"
         # a doubled word or phrase reads as an insert equal to the words right before or after
         # it ("we can | we can ship today")
         if op == "insert":
@@ -344,7 +350,9 @@ def main():
                     if g.get("clip") is None:
                         ov = [max(0.0, min(g["end"], c["end"]) - max(g["start"], c["start"]))
                               for c in s["clips"]]
-                        if ov and max(ov) > 0:
+                        # only a unique best match: a plan that reuses a source range
+                        # leaves the segment's origin genuinely unknown
+                        if ov and max(ov) > 0 and ov.count(max(ov)) == 1:
                             g["clip"] = ov.index(max(ov))
                 s = {**s, "clips": segs, "duration": info["final_s"]}
         print(f"  {tag}")

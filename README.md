@@ -224,7 +224,7 @@ s3_v004.mp4  49.6s -> 46.8s  (9 segments, punch-in)  nvenc
 | `captions` | ≥ 95% of speech captioned (n/a when captions are off) |
 | `hook_card` | present if and only if the plan has one |
 | `fillers` | ≤ 1 um/uh found when the output is re-transcribed |
-| `joins` | at every cut, the re-transcription has no word or phrase missing (clipped) or doubled. Warnings that don't fail but are printed as `note:` lines even on a PASS, to check by ear: `extra` (a word at the cut that the captions don't have: usually a real word the transcript skipped, sometimes a cut-off fragment) and `repeat` (the speaker really repeats words). `changed` (probably a mis-hearing) is only listed in `_qa.json`. The words either side of every edit are listed in `_qa.json` for review. n/a for renders older than segment logging |
+| `joins` | at every cut, the re-transcription has no word or phrase missing (clipped) or doubled. Warnings that don't fail but are printed as `note:` lines even on a PASS, to check by ear: `extra` (a word at the cut that the captions don't have: usually a real word the transcript skipped, sometimes a cut-off fragment), `filler` (an um/uh left at a cut when fillers were meant to be cut) and `repeat` (the speaker really repeats words). `changed` (probably a mis-hearing) is only listed in `_qa.json`. The words either side of every edit are listed in `_qa.json` for review. n/a for renders older than segment logging |
 | `framing` | tracked face within the middle 60% of a vertical frame |
 
 ### 5. Review, undo, approve
