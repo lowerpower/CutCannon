@@ -153,8 +153,13 @@ def boundary_report(d, res):
             # words (or that this clip picks up from the previous one) is a splice, not a break
             before = spans[i - 1] if i > 0 else None
             after = spans[i + 1] if i + 1 < len(spans) else None
-            spliced_in = before and 0 < a - before[1] <= SPLICE_SKIP + 1
-            spliced_out = after and 0 < after[0] - b <= SPLICE_SKIP + 1
+            def one_sentence(x, y):  # words x..y run on with no sentence end or long pause
+                return all(not words[k]["w"].endswith(SENT_END)
+                           and words[k + 1]["s"] - words[k]["e"] < THOUGHT_GAP for k in range(x, y))
+            spliced_in = (before and 0 < a - before[1] <= SPLICE_SKIP + 1
+                          and one_sentence(before[1], a))
+            spliced_out = (after and 0 < after[0] - b <= SPLICE_SKIP + 1
+                           and one_sentence(b, after[0]))
             prev = words[a - 1] if a > 0 else None
             nxt = words[b + 1] if b + 1 < len(words) else None
             if (prev and not spliced_in and not prev["w"].endswith(SENT_END)
