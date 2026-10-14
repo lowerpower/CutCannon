@@ -133,21 +133,19 @@ def join_audit(words, short, heard, total):
     if not clips or not all("n" in c for c in clips):
         # no record of the segments actually rendered (a render from before render logs kept
         # them): the joins can't be located, so don't guess
-        return {"joins": None, "edits": [], "issues": [], "pass": None,
+        return {"joins": None, "edits": None, "issues": [], "pass": None,
                 "note": "render predates segment logging - re-render to audit joins"}
     expected, _ = R.caption_words(words, clips, {**short, "word_fixes": {}})
     exp, got = _tokens(expected), _tokens([w for w in heard if not FILLER.match(w["w"])])
     # join times on the output timeline (render segments are exactly n frames when known)
     k = total / sum(c["n"] for c in clips)
     lens = [c["n"] * k for c in clips]
+    # which joins are edits needs each segment's plan clip; without it, say so rather than guess
+    known = all(c.get("clip") is not None for c in clips)
     joins, t = [], 0.0
     for i, (a, b) in enumerate(zip(clips, clips[1:])):
         t += lens[i]
-        if "clip" in a and "clip" in b and a["clip"] is not None and b["clip"] is not None:
-            edit = a["clip"] != b["clip"]
-        else:  # older render log: an edit jumps backwards or skips over a second or more
-            edit = b["start"] < a["end"] or b["start"] - a["end"] > 1.0
-        joins.append({"at_s": round(t, 2), "edit": edit})
+        joins.append({"at_s": round(t, 2), "edit": (a["clip"] != b["clip"]) if known else None})
 
     def near(t0, t1):
         return [j for j in joins if t0 - JOIN_WIN <= j["at_s"] <= t1 + JOIN_WIN]
@@ -182,7 +180,7 @@ def join_audit(words, short, heard, total):
         after = [w["w"] for w in shown if (w["s"] + w["e"]) / 2 >= t0][:n]
         return f"{' '.join(before)} | {' '.join(after)}"
 
-    edits = [{"at_s": j["at_s"], "words": ctx(j["at_s"])} for j in joins if j["edit"]]
+    edits = [{"at_s": j["at_s"], "words": ctx(j["at_s"])} for j in joins if j["edit"]] if known else None
     # Only a clipped (missing) or doubled word fails. 'extra' is reported but doesn't fail:
     # checked by ear, it is usually a real word the original transcript skipped ("so the
     # funny part") or a sliver too short to hear. 'changed' is usually a mis-hearing.
@@ -336,7 +334,16 @@ def main():
         if info_f.exists():  # check against the tightened segments the render actually used
             info = json.loads(info_f.read_text())
             if info.get("clips"):
-                s = {**s, "clips": info["clips"], "duration": info["final_s"]}
+                segs = [dict(c) for c in info["clips"]]
+                # logs from before segments were tagged with their plan clip: recover it as the
+                # plan clip each segment overlaps most (none at all -> left unknown)
+                for g in segs:
+                    if g.get("clip") is None:
+                        ov = [max(0.0, min(g["end"], c["end"]) - max(g["start"], c["start"]))
+                              for c in s["clips"]]
+                        if ov and max(ov) > 0:
+                            g["clip"] = ov.index(max(ov))
+                s = {**s, "clips": segs, "duration": info["final_s"]}
         print(f"  {tag}")
         run(d, s, mp4, tag)
 
