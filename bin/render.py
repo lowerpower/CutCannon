@@ -193,10 +193,42 @@ def quiet_edge(env, t, direction, limit):
     return t
 
 
+SQUASHED = 0.06  # a word shorter than this has unreliable timing (see tighten)
+
+
+def clean_edge(env, t, direction, limit, pad, bound, valley=True):
+    """Where to cut next to a word edge at t. Walk outward (direction -1 before an onset,
+    +1 after a release) up to `limit` s to the first quiet hop, then up to `pad` s further
+    but only while it stays quiet, so the padding never reaches into a neighbouring word
+    (an untranscribed "and" or "so" sitting right next to the kept one). Never past `bound`.
+    No quiet hop at all means the words run together: cut at the quietest hop in the range
+    (or at t when valley=False)."""
+    import numpy as np
+    rms, hop, thr = env
+    i = int(round(t / hop))
+    steps = int(limit / hop)
+    js = [j for j in (i + direction * k for k in range(steps + 1))
+          if 0 <= j < len(rms) and (j * hop - bound) * direction <= 0]
+    q = next((j for j in js if rms[j] < thr), None)
+    if q is None:
+        if not valley or not js:
+            return t
+        return js[int(np.argmin(rms[js]))] * hop
+    j = q
+    for _ in range(int(pad / hop)):
+        k = j + direction
+        if not (0 <= k < len(rms)) or rms[k] >= thr or (k * hop - bound) * direction > 0:
+            break
+        j = k
+    return j * hop
+
+
 def tighten(clips, words, env, fillers=True, max_pause=0.2, motion=None):
     """Split each clip around filler words and over-long pauses. With `motion` (screen
     recordings), a pause is only cut when the screen is also still during it."""
     segs = []
+    allw = sorted(words, key=lambda w: w["s"])
+    at = {id(w): i for i, w in enumerate(allw)}
     for c in clips:
         extra = {k: c[k] for k in ("track", "clip") if k in c}
         ws = [w for w in words if c["start"] <= (w["s"] + w["e"]) / 2 <= c["end"]]
@@ -208,8 +240,22 @@ def tighten(clips, words, env, fillers=True, max_pause=0.2, motion=None):
             continue
         # clip edges snap to the first / last REAL word: drops leading/trailing fillers and
         # noise even when Whisper didn't transcribe them (energy check keeps word onsets)
-        start = max(c["start"], quiet_edge(env, keep[0]["s"], -1, 0.15) - 0.06)
-        end = min(c["end"], quiet_edge(env, keep[-1]["e"], +1, 0.12) + 0.06)
+        # The clip holds a word when the word's midpoint is inside it, so the edge goes to that
+        # word's onset / release even when the planned edge cuts into it (a clipped "Ye-ah"),
+        # but never past halfway to the neighbouring word (a fragment of the next "And").
+        i0, i1 = at[id(keep[0])], at[id(keep[-1])]
+        prev = allw[i0 - 1] if i0 > 0 else None
+        nxt = allw[i1 + 1] if i1 + 1 < len(allw) else None
+        floor = min((prev["e"] + keep[0]["s"]) / 2, keep[0]["s"]) if prev else 0.0
+        ceil = max((keep[-1]["e"] + nxt["s"]) / 2, keep[-1]["e"]) if nxt else float("inf")
+        # a squashed first word is really spoken somewhere between the previous word and its
+        # stated time, so search that whole gap
+        lim0 = 0.15
+        if keep[0]["e"] - keep[0]["s"] < SQUASHED:
+            floor = min(prev["e"], keep[0]["s"]) if prev else 0.0
+            lim0 = max(0.15, keep[0]["s"] - floor)
+        start = clean_edge(env, keep[0]["s"], -1, lim0, 0.06, floor)
+        end = clean_edge(env, keep[-1]["e"], +1, 0.12, 0.06, min(ceil, keep[-1]["e"] + 0.3))
         cur = start
         for p, n in zip(keep, keep[1:]):
             has_filler = fillers and any(w.get("f") and p["e"] - 0.01 <= w["s"] <= n["s"] for w in ws)
@@ -218,10 +264,34 @@ def tighten(clips, words, env, fillers=True, max_pause=0.2, motion=None):
                 continue
             if not has_filler and motion is not None and motion(p["e"], n["s"]) > MOTION_T:
                 continue  # the screen is doing something during this pause: it's content, keep it
-            qa = quiet_edge(env, p["e"], +1, 0.12)
-            qb = quiet_edge(env, n["s"], -1, 0.15)
             keep_pad = 0.06 if has_filler else (max_pause or 0.2) / 2
-            a, b = qa + keep_pad, qb - keep_pad
+            a = clean_edge(env, p["e"], +1, 0.12, keep_pad, n["s"], valley=False)
+            b = clean_edge(env, n["s"], -1, 0.15, keep_pad, p["e"], valley=False)
+            # Whisper sometimes squashes a word to (near) zero length and parks it on the next
+            # word's start ("uh, robot@2092.77-2092.77 helpers@2092.77"): the word is really
+            # spoken somewhere in the gap, so cutting to its stated time deletes it. Find its
+            # real onset (release) from the audio: walk the whole gap to the last quiet spot
+            # before it. With no quiet spot, cut only the filler and keep the rest of the gap.
+            fl = [w for w in ws if w.get("f") and p["e"] - 0.01 <= w["s"] <= n["s"]]
+            if n["e"] - n["s"] < SQUASHED:
+                lo = max(w["e"] for w in fl) if fl else p["e"]
+                q = quiet_edge(env, n["s"], -1, max(0.15, n["s"] - lo))
+                b = min(b, q - keep_pad if q < n["s"] else lo + 0.03)
+            if p["e"] - p["s"] < SQUASHED:
+                hi = min(w["s"] for w in fl) if fl else n["s"]
+                q = quiet_edge(env, p["e"], +1, max(0.12, hi - p["e"]))
+                a = max(a, q + keep_pad if q > p["e"] else hi - 0.03)
+            # A pause cut must only remove silence. Whisper can time the next word late ("The"
+            # stated at 260.03, spoken 259.86-260.02, with a quiet dip right at 260.03): speech
+            # just before the cut's far edge (12 dB over the silence threshold for 40 ms+)
+            # means the word starts there, so stop the cut short of it.
+            if not has_filler:
+                rms, hop, thr = env
+                win = range(int(max(a, b - 0.25) / hop) + 1, int(b / hop))
+                hot = {j for j in win if rms[j] >= 4 * thr}
+                run = [j for j in sorted(hot) if all(k in hot for k in range(j, j + 4))]
+                if run:
+                    b = min(b, clean_edge(env, run[0] * hop, -1, 0.15, 0.03, a, valley=False))
             if b - a > 0.08:
                 segs.append({"start": cur, "end": a, **extra})
                 cur = b

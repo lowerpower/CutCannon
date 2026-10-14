@@ -183,8 +183,10 @@ def join_audit(words, short, heard, total):
         return f"{' '.join(before)} | {' '.join(after)}"
 
     edits = [{"at_s": j["at_s"], "words": ctx(j["at_s"])} for j in joins if j["edit"]]
-    # 'changed' near a join is usually a mis-hearing, so it's reported but doesn't fail QA
-    bad = [x for x in issues if x["kind"] in ("missing", "extra", "doubled")]
+    # Only a clipped (missing) or doubled word fails. 'extra' is reported but doesn't fail:
+    # checked by ear, it is usually a real word the original transcript skipped ("so the
+    # funny part") or a sliver too short to hear. 'changed' is usually a mis-hearing.
+    bad = [x for x in issues if x["kind"] in ("missing", "doubled")]
     return {"joins": len(joins), "edits": edits, "issues": issues, "pass": not bad}
 
 
