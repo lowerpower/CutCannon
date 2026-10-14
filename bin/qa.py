@@ -2,7 +2,7 @@
 """qa.py <proj> [short_id ...] [--version vN] [--preview]
 
 Checks a rendered short and writes, next to the render:
-  <tag>_qa.json     sync, duration, loudness, caption coverage, hook card, face framing
+  <tag>_qa.json     sync, duration, color, loudness, captions, hook card, fillers, joins, framing
   <tag>_frames.png  contact sheet: hook, 25%, 50%, 75%, end
 render.py runs this automatically after every render.
 """
@@ -83,12 +83,118 @@ def speech_intervals(words, clips):
     return merge(iv)
 
 
-def remaining_fillers(mp4):
-    """Re-transcribe the finished render with the disfluency prompt; list fillers left in."""
+def retranscribe(mp4):
+    """Transcribe the finished render once, with the disfluency prompt (so fillers show up).
+    Used by the fillers and joins checks."""
     import asr
-    from transcribe import PROMPT, FILLER
-    segs = asr.transcribe(str(mp4), prompt=PROMPT, vad=True)  # VAD: no phantom "um" over music
-    return [round(w.start, 2) for s in segs for w in (s.words or []) if FILLER.match(w.word.strip())]
+    from transcribe import PROMPT
+    segs = asr.transcribe(str(mp4), prompt=PROMPT, vad=True)  # VAD: no phantom words over music
+    return [{"w": w.word.strip(), "s": w.start, "e": w.end} for s in segs for w in (s.words or [])
+            if w.word.strip()]
+
+
+def remaining_fillers(heard):
+    from transcribe import FILLER
+    return [round(w["s"], 2) for w in heard if FILLER.match(w["w"])]
+
+
+JOIN_WIN = 0.35   # a word problem this close to a join (s) is blamed on the join
+
+
+def _tokens(words):
+    """Comparable tokens with times: lowercase, punctuation dropped, '15,000' == '15000',
+    hyphenated / multi-word strings split."""
+    merged = []
+    for w in words:  # continuation tokens join the previous word, as in the captions
+        if merged and re.match(r"^(-|,\d)", w["w"]):
+            merged[-1] = {**merged[-1], "w": merged[-1]["w"] + w["w"], "e": w["e"]}
+        else:
+            merged.append(w)
+    out = []
+    for w in merged:
+        for t in re.split(r"[\s\-]+", w["w"].lower()):
+            t = re.sub(r"[^\w']", "", t.replace(",", "")).strip("'")
+            if t:
+                out.append((t, w["s"], w["e"]))
+    return out
+
+
+def join_audit(words, short, heard, total):
+    """Compare what the render SHOULD say (the transcript words kept, on the output timeline)
+    with what a fresh transcription of the render DOES say, and blame differences that sit on a
+    join: a word missing there was clipped by the cut; an unexpected word there is a doubled
+    word, a cut-off fragment, or a filler stub. Differences away from joins are transcription
+    noise and ignored. Also lists the words either side of every edit (a join between two
+    different plan clips) so a reviewer can judge whether the thought connects."""
+    import difflib
+    import render as R
+    from transcribe import FILLER
+    clips = short["clips"]
+    if not clips or not all("n" in c for c in clips):
+        # no record of the segments actually rendered (a render from before render logs kept
+        # them): the joins can't be located, so don't guess
+        return {"joins": None, "edits": None, "issues": [], "pass": None,
+                "note": "render predates segment logging - re-render to audit joins"}
+    expected, _ = R.caption_words(words, clips, {**short, "word_fixes": {}})
+    # fillers the plan asked to cut stay in: one left at a cut shows up as a 'filler' note.
+    # With filler cutting off they're kept on purpose and never captioned, so drop them.
+    cut_fillers = bool((short.get("tighten") or {}).get("fillers"))
+    exp = _tokens(expected)
+    got = _tokens([w for w in heard if cut_fillers or not FILLER.match(w["w"])])
+    # join times on the output timeline (render segments are exactly n frames when known)
+    k = total / sum(c["n"] for c in clips)
+    lens = [c["n"] * k for c in clips]
+    # which joins are edits needs each segment's plan clip; without it, say so rather than guess
+    known = all(c.get("clip") is not None for c in clips)
+    joins, t = [], 0.0
+    for i, (a, b) in enumerate(zip(clips, clips[1:])):
+        t += lens[i]
+        joins.append({"at_s": round(t, 2), "edit": (a["clip"] != b["clip"]) if known else None})
+
+    def near(t0, t1):
+        return [j for j in joins if t0 - JOIN_WIN <= j["at_s"] <= t1 + JOIN_WIN]
+
+    issues = []
+    sm = difflib.SequenceMatcher(None, [x[0] for x in exp], [x[0] for x in got], autojunk=False)
+    for op, i1, i2, j1, j2 in sm.get_opcodes():
+        if op == "equal":
+            continue
+        miss, extra = exp[i1:i2], got[j1:j2]
+        span = miss or extra
+        js = near(min(x[1] for x in span), max(x[2] for x in span))
+        if not js:
+            continue
+        kind = {"delete": "missing", "insert": "extra", "replace": "changed"}[op]
+        if op == "insert" and all(FILLER.match(x[0]) for x in extra):
+            kind = "filler"
+        # a doubled word or phrase reads as an insert equal to the words right before or after
+        # it ("we can | we can ship today")
+        if op == "insert":
+            ins, k = [x[0] for x in extra], len(extra)
+            if ins in ([x[0] for x in got[max(0, j1 - k):j1]], [x[0] for x in got[j2:j2 + k]]):
+                kind = "doubled"
+        # the speaker repeats words across the join ("it's, it's saved, saved") and the fresh
+        # transcription tidied the repeat away: a stutter worth hearing, not a clipped word
+        if op == "delete":
+            near_exp = {x[0] for x in exp[max(0, i1 - len(miss)):i1] + exp[i2:i2 + len(miss)]}
+            if all(x[0] in near_exp for x in miss):
+                kind = "repeat"
+        issues.append({"at_s": js[0]["at_s"], "kind": kind,
+                       "expected": " ".join(x[0] for x in miss), "heard": " ".join(x[0] for x in extra)})
+
+    shown, _ = R.caption_words(words, clips, short)  # as captioned (word_fixes applied)
+
+    def ctx(t0, n=5):
+        before = [w["w"] for w in shown if (w["s"] + w["e"]) / 2 < t0][-n:]
+        after = [w["w"] for w in shown if (w["s"] + w["e"]) / 2 >= t0][:n]
+        return f"{' '.join(before)} | {' '.join(after)}"
+
+    edits = [{"at_s": j["at_s"], "words": ctx(j["at_s"])} for j in joins if j["edit"]] if known else None
+    # Only a clipped (missing) or doubled word fails. 'extra' is reported but doesn't fail:
+    # checked by ear, it is usually a real word the original transcript skipped ("so the
+    # funny part") or a sliver too short to hear. 'changed' is usually a mis-hearing.
+    bad = [x for x in issues if x["kind"] in ("missing", "doubled")]
+    return {"joins": len(joins), "edits": edits, "issues": issues, "pass": not bad}
 
 
 def run(d, short, mp4, tag):
@@ -151,9 +257,19 @@ def run(d, short, mp4, tag):
 
     # fillers: only judged when the plan asked for them to be cut
     tg = short.get("tighten") or {}
-    fl = remaining_fillers(mp4)
+    heard = retranscribe(mp4)
+    fl = remaining_fillers(heard)
     checks["fillers"] = {"remaining": len(fl), "at_s": fl[:10],
                          "pass": (len(fl) <= 1) if tg.get("fillers") else None}
+
+    # joins: clipped / doubled / stray words at cuts; words either side of every edit
+    checks["joins"] = join_audit(words, short, heard, fd)
+    for x in checks["joins"]["issues"]:
+        if x["kind"] != "changed":
+            notes.append(f"join at {x['at_s']}s: {x['kind']} word(s) "
+                         f"(expected '{x['expected']}', heard '{x['heard']}')")
+    if checks["joins"].get("note"):
+        notes.append(checks["joins"]["note"])
 
     # frames + face framing
     times = [min(short["hook_seconds"] / 2, fd / 2), fd * .25, fd * .5, fd * .75, max(fd - 0.5, 0)]
@@ -227,7 +343,18 @@ def main():
         if info_f.exists():  # check against the tightened segments the render actually used
             info = json.loads(info_f.read_text())
             if info.get("clips"):
-                s = {**s, "clips": info["clips"], "duration": info["final_s"]}
+                segs = [dict(c) for c in info["clips"]]
+                # logs from before segments were tagged with their plan clip: recover it as the
+                # plan clip each segment overlaps most (none at all -> left unknown)
+                for g in segs:
+                    if g.get("clip") is None:
+                        ov = [max(0.0, min(g["end"], c["end"]) - max(g["start"], c["start"]))
+                              for c in s["clips"]]
+                        # only a unique best match: a plan that reuses a source range
+                        # leaves the segment's origin genuinely unknown
+                        if ov and max(ov) > 0 and ov.count(max(ov)) == 1:
+                            g["clip"] = ov.index(max(ov))
+                s = {**s, "clips": segs, "duration": info["final_s"]}
         print(f"  {tag}")
         run(d, s, mp4, tag)
 

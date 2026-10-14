@@ -122,13 +122,17 @@ renders/). Renders stay in the project folder; never copy them elsewhere unless 
    Render one short: `python bin/render.py <slug> s2`
 
    **QA runs automatically after every render** and prints one line per short, e.g.
-   `QA PASS: av_sync=ok duration=ok color=ok loudness=ok captions=ok hook_card=ok fillers=ok framing=ok`,
+   `QA PASS: av_sync=ok duration=ok color=ok loudness=ok captions=ok hook_card=ok fillers=ok joins=ok framing=ok`,
    followed by a timing line (prep / encode / loudnorm / qa).
    It writes `renders/<tag>_qa.json` and a contact sheet `renders/<tag>_frames.png`
    (hook, 25%, 50%, 75%, end). Re-run alone with `python bin/qa.py <slug> [id]`.
    - Read the QA line before reporting a render as done. Never call a FAIL "done".
    - `av_sync` / `duration` FAIL → re-render; if it repeats, report the drift numbers.
    - `loudness` FAIL → report LUFS/true-peak; usually a very quiet or clipped source.
+   - `joins` FAIL → a `note:` names each join (output seconds), the kind and the words. `missing` = a word clipped at the cut: move that clip edge to include the whole word (word cuts make this exact). `doubled` = the same word or phrase on both sides of a cut: drop one.
+   - `joins` warnings appear as `note:` lines even when QA PASSes, and must be reported too, never skipped because the line says PASS: `extra` = a word at the cut the captions don't have (usually a real word the transcript skipped, sometimes a cut-off fragment): tell the user where, and move the edge off it if it's a fragment. `filler` = an um/uh survived at a cut: nudge that clip edge past it. `repeat` = the speaker really says it twice; it's the user's call. Treat all of these as "listen here", not certainties: give the times so the user can check by ear.
+   - Always read `checks.joins.edits` in the QA json: the words either side of every edit (a join between two plan clips). Judge whether each one reads as one connected thought; if one doesn't, say which and propose a fix. Technical checks passing does not mean the edit makes sense. `edits: null` means the render can't say which joins are edits (an old render): re-render to get the list, or review the plan's clip boundaries instead.
+   - After `plan.py save`, read any `WARN incomplete thoughts` lines: a clip starting or ending mid-sentence. Fine when intended (opening on the second half of a sentence); otherwise move the edge.
    - `captions` FAIL → `uncaptioned_at_s` lists output times with speech but no caption; check those words in the transcript (often dropped by the word filter at a clip edge — widen the clip slightly).
    - `color` FAIL → the HDR source wasn't tone-mapped or the output is mis-tagged; re-render.
    - `fillers` FAIL → more than one um/uh survived; `at_s` lists output times. Usually a filler Whisper missed in the source transcript — cut it with a clip boundary.
