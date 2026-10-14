@@ -161,9 +161,12 @@ def join_audit(words, short, heard, total):
         if not js:
             continue
         kind = {"delete": "missing", "insert": "extra", "replace": "changed"}[op]
-        # a doubled word reads as an insert equal to its neighbour
-        if op == "insert" and j1 > 0 and got[j1][0] == got[j1 - 1][0]:
-            kind = "doubled"
+        # a doubled word or phrase reads as an insert equal to the words right before or after
+        # it ("we can | we can ship today")
+        if op == "insert":
+            ins, k = [x[0] for x in extra], len(extra)
+            if ins in ([x[0] for x in got[max(0, j1 - k):j1]], [x[0] for x in got[j2:j2 + k]]):
+                kind = "doubled"
         # the speaker repeats words across the join ("it's, it's saved, saved") and the fresh
         # transcription tidied the repeat away: a stutter worth hearing, not a clipped word
         if op == "delete":
