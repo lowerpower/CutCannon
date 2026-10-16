@@ -526,11 +526,53 @@ def rescan_fillers(d, src, clips):
     return tr["words"], added, len(todo)
 
 
+STAB = {"shakiness": 6, "accuracy": 15, "smoothing": 15}   # smoothing in frames: ~0.5 s keeps pans, removes jitter
+
+
+def stabilized_source(d, src, hdr):
+    """A stabilized copy of the source (vid.stab, two passes), built once and cached in <proj>/cache/.
+    Same frames and timestamps as the source, first audio track copied, so cut times, transcript and audio all
+    still line up. HDR sources are tone-mapped here (vid.stab works on 8-bit video), so the render must not
+    tone-map again. A small static zoom (optzoom) hides the edges the correction exposes."""
+    cache = d / "cache"; cache.mkdir(exist_ok=True)
+    out, stamp_f = cache / "stabilized.mp4", cache / "stabilized.json"
+    st = src.stat(); stamp = {"source": src.name, "size": st.st_size, "mtime": int(st.st_mtime), "hdr": hdr, **STAB}
+    if out.exists() and stamp_f.exists() and json.loads(stamp_f.read_text()) == stamp:
+        return out
+    trf = cache / "stabilized.trf"; tm = TONEMAP + "," if hdr else ""
+    print(f"    stabilizing the source (once per project; cached in {cache.name}/) ...", flush=True)
+    t = time.time()
+    r = subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(src), "-map", "0:v:0",
+                        "-vf", f"{tm}vidstabdetect=shakiness={STAB['shakiness']}:accuracy={STAB['accuracy']}:result={trf.name}",
+                        "-f", "null", "-"], cwd=cache, capture_output=True, text=True)
+    if r.returncode:
+        sys.exit(f"stabilize: detect failed\n{r.stderr[-1500:]}")
+    for acodec in (["-c:a", "copy"], ["-c:a", "aac", "-b:a", "256k"]):   # copy keeps sync exact; re-encode if it can't
+        r = subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(src), "-map", "0:v:0", "-map", "0:a:0?",
+                            "-vf", f"{tm}vidstabtransform=input={trf.name}:smoothing={STAB['smoothing']}:optzoom=1:interpol=bicubic,"
+                                   f"unsharp=5:5:0.5", "-fps_mode", "passthrough",
+                            "-c:v", "libx264", "-preset", "fast", "-crf", "15", "-pix_fmt", "yuv420p",
+                            "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709",
+                            *acodec, "-movflags", "+faststart", "stabilized.tmp.mp4"], cwd=cache, capture_output=True, text=True)
+        if r.returncode == 0:
+            break
+    if r.returncode:
+        sys.exit(f"stabilize: transform failed\n{r.stderr[-1500:]}")
+    (cache / "stabilized.tmp.mp4").replace(out); trf.unlink(missing_ok=True)
+    stamp_f.write_text(json.dumps(stamp))
+    print(f"    stabilized in {time.time() - t:.0f}s")
+    return out
+
+
 def render_short(d, meta, words, short, ver, preview, enc):
     T, t0 = {}, time.time()
     src = P.source(d)
     trc = source_transfer(src)
     hdr = trc in HDR_TRC
+    tonemap_here = hdr
+    if short.get("stabilize"):   # handheld / walking / vehicle footage: render from the stabilized copy
+        src = stabilized_source(d, src, hdr)
+        tonemap_here = False      # the stabilized copy is already tone-mapped SDR
     fmt = short.get("format", "vertical")
     if fmt == "source":  # keep the original frame: full-video cleanup, no crop
         W, H = meta["width"] // 2 * 2, meta["height"] // 2 * 2
@@ -611,7 +653,7 @@ def render_short(d, meta, words, short, ver, preview, enc):
             geo = f"crop={cw}:{sh}:{cx}:0,scale={W}:{H}"
         if short.get("punch_in") and fmt == "vertical" and i % 2 == 1:
             geo += f",scale={pw}:{ph},crop={W}:{H}:(iw-{W})/2:(ih-{H})/2"
-        tm = TONEMAP + "," if hdr else ""
+        tm = TONEMAP + "," if tonemap_here else ""
         fc.append(f"[{i}:v:0]setpts=PTS-STARTPTS,{tm}{geo},setsar=1,fps={fps_out:.6f},"
                   f"tpad=stop_mode=clone:stop=3,trim=end_frame={c['n']},setpts=PTS-STARTPTS[v{i}]")
         dur = c["n"] / fps_out
@@ -644,7 +686,7 @@ def render_short(d, meta, words, short, ver, preview, enc):
     two_pass_loudnorm(outp)
     T["loudnorm"] = time.time() - t
 
-    info = {"source_transfer": trc, "tonemapped": hdr, "encoder": enc,
+    info = {"source_transfer": trc, "tonemapped": hdr, "stabilized": bool(short.get("stabilize")), "encoder": enc,
             "planned_s": planned, "final_s": short["duration"], "segments": n,
             # the exact segments used, so a later standalone QA run checks what was rendered
             # "clip" = which plan clip a segment came from: a join between two different plan

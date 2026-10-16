@@ -48,6 +48,9 @@ else:
     ver = run("ffmpeg", "-version").stdout.split("\n")[0][:40]
     check(OK, "ffmpeg", f"{ver}  ({ff})")
     filters = run("ffmpeg", "-hide_banner", "-filters").stdout
+    stab_ok = " vidstabdetect " in filters and " vidstabtransform " in filters
+    check(OK if stab_ok else WARN, "ffmpeg vid.stab", "vidstabdetect, vidstabtransform (for \"stabilize\": true)" if stab_ok
+          else "missing: plans with \"stabilize\": true will fail", "brew install ffmpeg-full" if MAC else "install an ffmpeg built with libvidstab")
     missing = [f for f in ("subtitles", "zscale", "loudnorm", "ebur128") if f" {f} " not in filters]
     check(OK if not missing else FAIL, "ffmpeg filters",
           "subtitles, zscale, loudnorm, ebur128" if not missing else f"missing: {', '.join(missing)}",

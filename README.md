@@ -23,6 +23,7 @@ record ─▶ transcribe ─▶ plan ─▶ render ─▶ QA ─▶ tweak / undo
 - **Speaker-aware vertical crop.** Per clip, `track: left | right | largest`. It follows that person through the source's camera switches, which are detected and pinned to the exact frame.
 - **Full-frame cleanup mode** for demos and screen recordings. A pause is only cut when the screen is also still, with the webcam bubble masked out of the motion measurement.
 - **Captions and hook card.** Burned in, word-by-word highlighted, with per-plan `word_fixes` for misheard names.
+- **Stabilization.** For handheld, walking, vehicle or boat footage, `"stabilize": true` in a plan removes camera shake (vid.stab, two passes): deliberate pans stay, the jitter goes. The source is stabilized once per project and cached, with the same frames, timestamps and audio, so cuts, transcript and captions still line up; HDR is tone-mapped in the same pass. Off by default (tripod shots and screen recordings don't need it).
 - **Color.** iPhone HDR (HLG/PQ) is tone-mapped to SDR BT.709, so it looks right everywhere.
 - **Audio.** Two-pass loudnorm to −14 LUFS / −1.5 dBTP, with optional compression, high-pass, and denoise.
 - **Post kit** per short: cover image, `.srt` caption file, and `_post.md` with title, description and tags for YouTube Shorts, TikTok and Instagram Reels (from a `_post.json` Claude writes; the episode link is set once per project).
