@@ -37,6 +37,10 @@ What's planned, roughly in order. Items move to **Done** as they ship.
 - **Chapters and cover headlines.** Chapter timestamps in the post kit for full-length cleanups;
   optional headline text on the cover image.
 - **Caption style presets** (bold pop, karaoke fill, clean lower third, boxed), per show.
+- **Scheduled YouTube uploads (opt-in).** Upload a finished short with its post kit (title,
+  description, tags, `.srt`) through the YouTube Data API as a private video with a scheduled
+  publish time, so it can be checked in YouTube Studio before it goes live. Runs only when you
+  ask, through your own Google Cloud project.
 - **Watermark / logo overlay** with position, size and opacity.
 - **Import from a URL** (yt-dlp), for content you own or have the rights to process.
 - **Sequential reels.** Split a whole video into a numbered series of consecutive clips.
@@ -45,7 +49,8 @@ What's planned, roughly in order. Items move to **Done** as they ship.
 
 ## Non-goals
 
-- **Posting to social platforms.** CutCannon makes files; nothing posts until you do it yourself.
+- **Posting on its own.** CutCannon makes files; nothing posts until you do it yourself. The
+  planned YouTube scheduler (above) is opt-in and runs only when you ask.
 - **Synthetic voices or AI-generated footage.** It edits real recordings.
 - **A web UI.** You drive it in plain English from Claude.
 
