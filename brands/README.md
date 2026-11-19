@@ -43,7 +43,7 @@ brand). Sizes and margins are pixels of a 1080-wide frame. Colors are `#RRGGBB`.
 | `shadow`, `shadow_color`, `shadow_opacity` | `3`, `#000000`, `0.5` | drop shadow |
 | `highlight` | `#FFE500` | the word being spoken |
 | `highlight_style` | `"color"` | `color`: the word turns `highlight`; `box`: a box of `highlight` behind it |
-| `highlight_text`, `highlight_padding` | `null`, `16` | `box` only: the word's text color, and how far the box reaches |
+| `highlight_text`, `highlight_padding` | `null`, `10` | `box` only: the word's text color, and how far the box reaches |
 | `uppercase` | `true` | captions in capitals |
 | `margin_bottom`, `margin_side` | `560`, `80` | position: distance from the bottom, and from the sides |
 

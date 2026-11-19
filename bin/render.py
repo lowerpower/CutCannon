@@ -387,7 +387,8 @@ def build_ass(words, clips, short, W, H, path, look=None):
         for wi, w in enumerate(ch):
             s = w["s"] if wi else ch[0]["s"]
             e = ch[wi + 1]["s"] if wi + 1 < len(ch) else end_chunk
-            lines.append(f"Dialogue: 1,{ts(s)},{ts(e)},Cap,,0,0,0,,{BR.caption_text(look, ch, wi, W)}")
+            for layer, style, text in BR.caption_events(look, ch, wi, W):
+                lines.append(f"Dialogue: {layer},{ts(s)},{ts(e)},{style},,0,0,0,,{text}")
     Path(path).write_text("\n".join(lines) + "\n")
     return total
 

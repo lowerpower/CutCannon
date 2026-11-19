@@ -29,7 +29,7 @@ DEFAULT = {
         "highlight": "#FFE500",          # the word being spoken
         "highlight_style": "color",      # "color": the word turns this color; "box": a box of this color behind it
         "highlight_text": None,          # "box" only: the word's text color (default: color)
-        "highlight_padding": 16,         # "box" only: how far the box reaches past the letters
+        "highlight_padding": 10,         # "box" only: how far the box reaches past the word
         "uppercase": True,
         "margin_bottom": 560, "margin_side": 80,
     },
@@ -83,10 +83,15 @@ def problems(raw):
                 probs.append(f"{sec}.{k}: must be true or false")
             elif k in ("font", "prefix", "cursor") and not isinstance(v, str):
                 probs.append(f"{sec}.{k}: must be text")
-    if raw.get("captions", {}).get("highlight_style", "color") not in ("color", "box"):
-        probs.append("captions.highlight_style: color | box")
-    if raw.get("hook", {}).get("align", "center") not in ALIGN:
-        probs.append("hook.align: left | center | right")
+    cap, hook = raw.get("captions", {}), raw.get("hook", {})
+    if isinstance(cap, dict):
+        hs = cap.get("highlight_style", "color")
+        if not isinstance(hs, str) or hs not in ("color", "box"):
+            probs.append("captions.highlight_style: color | box")
+    if isinstance(hook, dict):
+        al = hook.get("align", "center")
+        if not isinstance(al, str) or al not in ALIGN:
+            probs.append("hook.align: left | center | right")
     return probs
 
 
@@ -156,9 +161,25 @@ def ass_header(look, W, H):
         f"Style: Hook,{h['font']},{px(h['size'])},{color(h['color'])},{color(h['color'])},{hb},{hb},"
         f"{-1 if h['bold'] else 0},0,0,0,100,100,0,0,3,{px(h['box_padding'])},0,{ALIGN[h['align']]},"
         f"{px(h['margin_side'])},{px(h['margin_side'])},{px(h['margin_top'])},1",
+        *box_style(look, W),
         "", "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     ]
+
+
+def box_style(look, W):
+    """For highlight_style "box": a CapBox style laid out exactly like Cap, with an opaque box
+    (BorderStyle 3) in the highlight color. libass draws that box per glyph and honours each glyph's
+    border alpha, so making every word but the spoken one transparent leaves a box behind that word."""
+    c = look["captions"]
+    if c["highlight_style"] != "box":
+        return []
+    k = W / 1080
+    px = lambda v: int(v * k)  # noqa: E731
+    hi = color(c["highlight"])
+    return [f"Style: CapBox,{c['font']},{px(c['size'])},{hi},{hi},{hi},{hi},{-1 if c['bold'] else 0},"
+            f"0,0,0,100,100,0,0,3,{px(c['highlight_padding'])},0,2,{px(c['margin_side'])},"
+            f"{px(c['margin_side'])},{px(c['margin_bottom'])},1"]
 
 
 def hook_text(look, text):
@@ -185,14 +206,32 @@ def caption_text(look, chunk, wi, W):
     for j, x in enumerate(chunk):
         w = ass_escape(up(x["w"]))
         if j == wi and c["highlight_style"] == "box":
+            # the box itself is the CapBox layer underneath; here the word just gets its text color
             tc = tag_color(c["highlight_text"]) if c["highlight_text"] else base
-            w = (f"{{\\c{tc}\\3c{hi}\\bord{int(c['highlight_padding'] * k)}\\shad0}}{w}"
-                 f"{{\\c{base}\\3c{tag_color(c['outline'])}\\bord{int(c['outline_width'] * k)}"
-                 f"\\shad{int(c['shadow'] * k)}}}")
+            w = (f"{{\\c{tc}\\bord0\\shad0}}{w}"
+                 f"{{\\c{base}\\bord{int(c['outline_width'] * k)}\\shad{int(c['shadow'] * k)}}}")
         elif j == wi:
             w = f"{{\\c{hi}}}{w}{{\\c{base}}}"
         out.append(w)
     return " ".join(out)
+
+
+def box_text(look, chunk, wi):
+    """CapBox layer text: the same words, all transparent except the box behind word wi."""
+    up = str.upper if look["captions"]["uppercase"] else (lambda s: s)
+    out = []
+    for j, x in enumerate(chunk):
+        w = ass_escape(up(x["w"]))
+        out.append(f"{{\\1a&HFF&\\3a&H00&}}{w}{{\\alpha&HFF&}}" if j == wi else w)
+    return "{\\alpha&HFF&}" + " ".join(out)
+
+
+def caption_events(look, chunk, wi, W):
+    """[(layer, style, text)] for one caption card: the Cap line, plus a CapBox layer under it for box highlights."""
+    ev = [(1, "Cap", caption_text(look, chunk, wi, W))]
+    if look["captions"]["highlight_style"] == "box":
+        ev.insert(0, (0, "CapBox", box_text(look, chunk, wi)))
+    return ev
 
 
 # ---------------------------------------------------------------- fonts
@@ -243,7 +282,8 @@ def preview(name, project=None, at=None, hook="The bug took 3 weeks. The fix too
         chunk = [{"w": w} for w in ws]
         lines = ass_header(look, W, H)
         lines.append(f"Dialogue: 2,0:00:00.00,0:00:05.00,Hook,,0,0,0,,{hook_text(look, hook)}")
-        lines.append(f"Dialogue: 1,0:00:00.00,0:00:05.00,Cap,,0,0,0,,{caption_text(look, chunk, len(ws) // 2, W)}")
+        for layer, style, text in caption_events(look, chunk, len(ws) // 2, W):
+            lines.append(f"Dialogue: {layer},0:00:00.00,0:00:05.00,{style},,0,0,0,,{text}")
         (tmp / "preview.ass").write_text("\n".join(lines) + "\n")
         vf = f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},subtitles=preview.ass:fontsdir={fdir}"
         if project:

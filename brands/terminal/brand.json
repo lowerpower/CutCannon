@@ -8,7 +8,7 @@
   "highlight": "#2F6FEB",
   "highlight_style": "box",
   "highlight_text": "#FFFFFF",
-  "highlight_padding": 16
+  "highlight_padding": 10
  },
  "hook": {
   "font": "JetBrains Mono",
