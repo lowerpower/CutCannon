@@ -7,11 +7,13 @@
 - **Shorts:** cut vertical 1080×1920 clips with word-by-word captions, a hook card, and a crop that follows whoever is speaking.
 - **Cleanup:** keep the full video in its original frame, and remove false starts, ums, and dead pauses (only pauses where the screen is also still), with audio at −14 LUFS.
 
+**It writes the social media posts too.** For every short, CutCannon makes a ready-to-paste **post kit**: a `_post.md` with the title, description and hashtags for YouTube Shorts, TikTok and Instagram Reels, plus a cover image and a caption file. Ask for it with *"write the post kit for s3"* or *"give me titles and hashtags for all of them"*, and Claude offers it whenever a short passes QA. See [Post kit](#6-post-kit-social-media-copy-for-every-short).
+
 Every edit is a versioned plan you can undo, every render is QA-checked automatically, and **nothing is ever uploaded or posted**.
 
 ```
-record ─▶ transcribe ─▶ plan ─▶ render ─▶ QA ─▶ tweak / undo ─▶ approve
-          whisper       Claude   ffmpeg    auto   new version      log only
+record ─▶ transcribe ─▶ plan ─▶ render ─▶ QA ─▶ tweak / undo ─▶ post kit ─▶ approve
+          whisper       Claude   ffmpeg    auto   new version      social copy  log only
 ```
 
 ## Features
@@ -25,7 +27,7 @@ record ─▶ transcribe ─▶ plan ─▶ render ─▶ QA ─▶ tweak / undo
 - **Captions and hook card.** Burned in, word-by-word highlighted, with per-plan `word_fixes` for misheard names.
 - **Color.** iPhone HDR (HLG/PQ) is tone-mapped to SDR BT.709, so it looks right everywhere.
 - **Audio.** Two-pass loudnorm to −14 LUFS / −1.5 dBTP, with optional compression, high-pass, and denoise.
-- **Post kit** per short: cover image, `.srt` caption file, and `_post.md` with title, description and tags for YouTube Shorts, TikTok and Instagram Reels (from a `_post.json` Claude writes; the episode link is set once per project).
+- **Social media post kit** per short: cover image, `.srt` caption file, and `_post.md` with title, description and tags for YouTube Shorts, TikTok and Instagram Reels (from a `_post.json` Claude writes; the episode link is set once per project).
 - **Automatic QA** on every render: A/V sync measured on decoded content, duration, color, loudness, caption coverage, hook card, fillers remaining (the output is re-transcribed), joins (clipped, doubled or stray words at every cut), and framing. Each render also gets a contact sheet.
 - **Local and private.** Recordings, transcripts, and renders stay on your disk. There is no posting code.
 
@@ -107,6 +109,7 @@ and propose as many as the material supports. It always proposes first and rende
 > **"Clean up product-demo: remove the false starts, dead pauses, and get the audio to −14 LUFS."**
 > **"Recommend 5 clips from podcast-ep12."** → **"Generate the first one."**
 > **"Open on the second story and lose the last sentence."** → new version, re-rendered.
+> **"Write the post kit for s1."** → `s1_v002_post.md`: YouTube Shorts, TikTok and Instagram Reels titles, descriptions and hashtags, plus a cover and a caption file.
 > **"Undo that."**   **"Approve s1."** (recorded, still nothing posted)
 
 Before recording, try: **"Score these ideas: …"** → the idea picker ranks them and writes your hook.
@@ -234,6 +237,61 @@ python bin/plan.py list  podcast-ep12     # history, * = CURRENT
 python bin/plan.py undo  podcast-ep12     # back to the parent version (nothing deleted)
 python bin/plan.py use   podcast-ep12 v2
 python bin/plan.py approve podcast-ep12 s1
+```
+
+### 6. Post kit: social media copy for every short
+
+When you're happy with a short, ask for its post kit: *"write the post kit for s3"*, *"titles and
+hashtags for all of them"*, *"what should I post this with?"*. Claude writes the copy into
+`renders/<tag>_post.json`, matched to what the clip actually says, then runs:
+
+```bash
+python bin/postkit.py podcast-ep12        # every short in the CURRENT plan
+python bin/postkit.py podcast-ep12 s3     # one short
+```
+
+Next to each render (`<tag>` is the newest render, e.g. `s3_v004`) you get:
+
+| File | What it is |
+|---|---|
+| `<tag>_post.md` | ready-to-paste copy: YouTube Shorts title, description, hashtags and tags; TikTok caption; Instagram Reels caption and hashtags; alt text; a pinned comment; posting notes |
+| `<tag>_cover.jpg` | cover / thumbnail: the frame showing the hook card |
+| `<tag>.srt` | caption file for YouTube or LinkedIn, with the same words and fixes as the burned-in captions |
+
+Details every short shares (show title, credits, the full-episode link) go once in
+`projects/<name>/post.json`. `postkit.py` checks platform limits (YouTube title up to 100 characters,
+at most 30 Instagram hashtags) and flags a missing episode link. It only writes files; you do the posting.
+
+A `_post.md` looks like this:
+
+```markdown
+# s3: "The bug took 3 weeks. The fix took 1 line."
+
+**Video:** `s3_v004.mp4` · 46.8 s · 1080×1920 · cover `s3_v004_cover.jpg` · captions `s3_v004.srt`
+
+## YouTube Shorts
+
+**Title:** Three weeks chasing a bug. The fix was one line.
+
+**Description:**
+
+Why a missing index took down checkout for three weeks, and the one-line fix.
+
+#Shorts #debugging #postgres
+
+## TikTok
+
+**Caption:**
+
+3 weeks of debugging, 1 line of code 😅 #debugging #coding #devlife
+
+## Instagram Reels
+
+**Caption:**
+
+Three weeks for one line. Here's what it was.
+
+#debugging #coding #softwareengineering
 ```
 
 ## Known limitations
