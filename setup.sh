@@ -62,6 +62,9 @@ if [ ! -f fonts/Montserrat-Black.ttf ]; then
   curl -fsSL -o fonts/Montserrat-Black.ttf "$base/Montserrat-Black.ttf"
   curl -fsSL -o fonts/Montserrat-ExtraBold.ttf "$base/Montserrat-ExtraBold.ttf"
 fi
+# monospace font for the "terminal" example brand (SIL OFL)
+[ -f fonts/JetBrainsMono-Bold.ttf ] || curl -fsSL -o fonts/JetBrainsMono-Bold.ttf \
+  https://raw.githubusercontent.com/JetBrains/JetBrainsMono/master/fonts/ttf/JetBrainsMono-Bold.ttf
 [ -f models/yunet.onnx ] || curl -fsSL -o models/yunet.onnx \
   https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
 if [ "$OS" = Darwin ]; then FD="$HOME/Library/Fonts"; else FD="$HOME/.local/share/fonts"; fi

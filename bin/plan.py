@@ -25,14 +25,19 @@ Draft format (Claude writes this):
     "trim": {"head": 0.0, "tail": 0.0},              # optional, applied per clip
     "tighten": {"fillers": true, "max_pause": 0.2},   # default: cut um/uh, cap pauses
     "punch_in": true,                                  # default: alternate zoom at cuts
-    "stabilize": false                                 # true: handheld / walking / vehicle footage
-  }]
+    "stabilize": false,                                # true: handheld / walking / vehicle footage
+    "brand": "terminal"                                # optional look (brands/<name>/brand.json);
+  }]                                                   #   or once at the top for every short
 }
 save fills tighten/punch_in defaults and freezes the resolved clip times into the
-version (_resolved), so re-transcribing never changes what an old version renders.
+version (_resolved), so re-transcribing never changes what an old version renders. It also
+freezes a copy of each short's brand (_brand), so editing a brand never changes an old version.
 """
 import json, os, sys, time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+import brand as B  # noqa: E402
 
 # repo root: $CUTCANNON if set, else wherever this checkout lives
 SF = Path(os.environ.get("CUTCANNON") or Path(__file__).resolve().parent.parent)
@@ -235,6 +240,12 @@ def resolve(d, plan):
             probs.append(f"{sid}: bad reframe {sh.get('reframe')}")
         if not isinstance(sh.get("stabilize", False), bool):
             probs.append(f"{sid}: stabilize must be true or false")
+        bname = sh.get("brand", plan.get("brand"))
+        if bname and "_brand" not in sh:
+            try:
+                B.read(bname)
+            except ValueError as e:
+                probs.append(f"{sid}: {e}")
         out.append({**sh, "clips": clips, "duration": round(dur, 2),
                     "hook_seconds": sh.get("hook_seconds", 2.5),
                     "reframe": sh.get("reframe", "face"),
@@ -244,7 +255,8 @@ def resolve(d, plan):
                     # vertical = 9:16 short; source = keep the original frame (cleanup of a full video)
                     "format": fmt,
                     "captions": sh.get("captions", fmt == "vertical"),
-                    "audio": sh.get("audio", {})})
+                    "audio": sh.get("audio", {}),
+                    "brand": bname})
     return {**plan, "shorts": out}, probs
 
 
@@ -260,6 +272,7 @@ def main():
             draft["note"] = args[args.index("--note") + 1]
         for s in draft.get("shorts", []):
             s.pop("_resolved", None)  # never trust a copied snapshot; resolve fresh
+            s.pop("_brand", None)
             s.setdefault("tighten", {"fillers": True, "max_pause": 0.2})
             s.setdefault("punch_in", s.get("format", "vertical") == "vertical")
         res, probs = resolve(d, draft)
@@ -270,6 +283,8 @@ def main():
         v = (vs[-1] + 1) if vs else 1
         for s, r in zip(draft["shorts"], res["shorts"]):
             s["_resolved"] = r["clips"]
+            if r["brand"]:
+                s["_brand"] = B.read(r["brand"])  # frozen: the brand as it was at save
         rec = {"version": v, "parent": current(d), "created": time.strftime("%Y-%m-%d %H:%M:%S"),
                **draft}
         (d / "plans" / f"v{v:03d}.json").write_text(json.dumps(rec, indent=2))

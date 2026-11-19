@@ -1,0 +1,11 @@
+{
+ "description": "Black hook card with gold text; white captions with the spoken word in gold",
+ "captions": {
+  "highlight": "#F2B705"
+ },
+ "hook": {
+  "color": "#F2B705",
+  "box": "#000000",
+  "box_opacity": 0.85
+ }
+}

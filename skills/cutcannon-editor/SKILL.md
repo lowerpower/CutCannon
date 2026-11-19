@@ -103,6 +103,9 @@ renders/). Renders stay in the project folder; never copy them elsewhere unless 
    - `reframe`: `face` (auto, static crop per clip), or `center` / `left` / `right`.
    - `stabilize`: `true` for **handheld, walking, vehicle or boat** footage (shaky phone video). It removes the camera shake and keeps deliberate pans. Leave it off (the default) for tripod or desk shots and screen recordings: there is nothing to fix, and it costs time. The first render with it stabilizes the whole source once (roughly 3x the source length on the Linux box; cached in `<project>/cache/`), so later renders and versions are as fast as before. It slightly zooms in (a few percent) to hide the edges the correction exposes; say so if framing is tight. If the user mentions shake, wobble or jitter, offer it.
    - `word_fixes`: caption corrections for mis-heard words (case-insensitive).
+   - `brand`: the show's look (see **Brands** below). Put `"brand": "<name>"` at the top of the draft
+     so every short uses it. If earlier versions of this project used a brand, keep using it unless
+     the user says otherwise. Without one, shorts get the default look.
    - Fillers appear in the transcript as `(um,)` / `(uh)`. With the defaults you do NOT cut them by hand: `"tighten": {"fillers": true, "max_pause": 0.2}` removes every um/uh and caps pauses at 0.2 s at render time, and `"punch_in": true` alternates a 108% zoom at each cut to hide jump cuts. Set `"punch_in": false` for a calmer look, or `"tighten": {"fillers": false, "max_pause": null}` to keep the speaker's natural rhythm.
    - "like", "you know", "I guess" are NOT auto-cut — cut them with clip boundaries only where they're pure filler.
    - Plans freeze resolved clip times at save, so re-transcribing never changes what an old version renders.
@@ -159,6 +162,28 @@ renders/). Renders stay in the project folder; never copy them elsewhere unless 
 
 6. **Approve** only when the user says so: `python bin/plan.py approve <slug> [ids]`.
    Approval is a record, not an action. Do not upload, post, schedule, or copy renders anywhere unless the user explicitly asks for that specific action.
+
+## Brands (a look per show)
+
+A brand sets the caption font, colors and word highlight, and the hook card, for every short of a
+show. It lives in `brands/<name>/brand.json` (fields and defaults: `brands/README.md`; any field
+left out keeps the default). The repo ships two examples: `terminal` (typed-terminal hook card,
+captions with the spoken word on a blue box) and `gold` (black hook card with gold text, gold word
+highlight). `python bin/brand.py list` shows what exists.
+
+When the user asks for a brand ("create a CutCannon brand for <show> from the show's look"):
+1. Look before you choose: grab frames from the show's episode or intro
+   (`ffmpeg -ss <t> -i <video> -frames:v 1 /tmp/f.png`) and read the colors and type of its logo,
+   wordmark and lower-thirds. Ask for the brand's hex colors or fonts if the user has them.
+2. Write `brands/<slug>/brand.json` with only the fields that differ from the default, plus a
+   one-line `description`. Use fonts already in `fonts/` or on the system (`fc-list : family`).
+   A font file the user provides (one they have the rights to) goes in the brand folder.
+3. `python bin/brand.py preview <slug> <project> [--at <seconds>] [--hook "a real hook"]` and show
+   the user `brands/<slug>/preview.png`. It renders one still with the hook card and a caption, in
+   seconds, with no plan version. Fix any `warning:` about a missing font. Adjust and preview again
+   until they like it.
+4. Use it: `"brand": "<slug>"` in the next plan draft, save, render. Saving freezes a copy of the
+   brand into that version, so to pick up a later change to the brand, save a new version.
 
 ## Troubleshooting
 - Anything environmental (missing ffmpeg filter, no GPU, import or model errors): run

@@ -8,6 +8,9 @@ env.sh
 fonts/
 models/
 
+# brand.py preview stills
+brands/*/preview.png
+
 # Python
 __pycache__/
 *.pyc
