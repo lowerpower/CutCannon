@@ -24,7 +24,8 @@ Draft format (Claude writes this):
                {"start": 41.20, "end": 47.85} ],      # or exact seconds
     "trim": {"head": 0.0, "tail": 0.0},              # optional, applied per clip
     "tighten": {"fillers": true, "max_pause": 0.2},   # default: cut um/uh, cap pauses
-    "punch_in": true                                   # default: alternate zoom at cuts
+    "punch_in": true,                                  # default: alternate zoom at cuts
+    "stabilize": false                                 # true: handheld / walking / vehicle footage
   }]
 }
 save fills tighten/punch_in defaults and freezes the resolved clip times into the
@@ -232,6 +233,8 @@ def resolve(d, plan):
             probs.append(f"{sid}: {dur:.1f}s is over 60s")
         if sh.get("reframe", "face") not in ("face", "center", "left", "right"):
             probs.append(f"{sid}: bad reframe {sh.get('reframe')}")
+        if not isinstance(sh.get("stabilize", False), bool):
+            probs.append(f"{sid}: stabilize must be true or false")
         out.append({**sh, "clips": clips, "duration": round(dur, 2),
                     "hook_seconds": sh.get("hook_seconds", 2.5),
                     "reframe": sh.get("reframe", "face"),
