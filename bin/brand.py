@@ -9,10 +9,11 @@
 A brand is brands/<name>/brand.json, plus (optionally) its own .ttf / .otf files in the same folder.
 Every field is optional; a missing field keeps the default look (see DEFAULT below and
 brands/README.md). A plan picks a brand with "brand": "<name>", for all its shorts or per short.
-plan.py save freezes a copy of the brand into the version, so editing a brand later never changes
-how an old version renders.
+plan.py save freezes a copy of the brand into the version (its settings, plus copies of its own font
+files under the project's plans/fonts/), so editing a brand later never changes how an old version
+renders.
 """
-import copy, json, os, re, shutil, subprocess, sys, tempfile
+import copy, hashlib, json, os, re, shutil, subprocess, sys, tempfile
 from pathlib import Path
 
 SF = Path(os.environ.get("CUTCANNON") or Path(__file__).resolve().parent.parent)
@@ -115,6 +116,21 @@ def merged(raw=None):
     for sec in DEFAULT:
         look[sec].update((raw or {}).get(sec, {}))
     return look
+
+
+def freeze(name, d):
+    """The brand as plan.py saves it into a version of project d: the brand.json, plus content-
+    addressed copies of the brand's own font files in d/plans/fonts/ (listed in "_fonts"), so
+    replacing or deleting a font in the brand folder can't change how this version renders."""
+    raw = read(name)
+    names_ = []
+    for f in _own_fonts(BRANDS / name):
+        dst = d / "plans" / "fonts" / (hashlib.sha256(f.read_bytes()).hexdigest()[:16] + f.suffix.lower())
+        if not dst.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(f, dst)
+        names_.append(dst.name)
+    return {**raw, "_fonts": names_}
 
 
 def for_short(short):
@@ -235,29 +251,40 @@ def caption_events(look, chunk, wi, W):
 
 
 # ---------------------------------------------------------------- fonts
-def fonts_dir(name):
-    """(fontsdir for libass, temp dir to delete or None). A brand's own font files join fonts/."""
-    extra = [f for f in (BRANDS / name).glob("*") if f.suffix.lower() in (".ttf", ".otf")] if name else []
-    if not extra:
+def _own_fonts(folder):
+    return sorted(f for f in folder.glob("*") if f.suffix.lower() in (".ttf", ".otf")) if folder.is_dir() else []
+
+
+def brand_fonts(name, frozen=None, d=None):
+    """The brand's own font files: for a frozen brand (saved in a plan version) the snapshot copies
+    in d/plans/fonts/, never the live brand folder; otherwise the files in brands/<name>/."""
+    if frozen is not None:
+        return [d / "plans" / "fonts" / n for n in frozen.get("_fonts", [])] if d is not None else []
+    return _own_fonts(BRANDS / name) if name else []
+
+
+def fonts_dir(files):
+    """(fontsdir for libass, temp dir to delete or None): fonts/ plus the given brand font files."""
+    files = [f for f in files if f.exists()]
+    if not files:
         return FONTS, None
     tmp = Path(tempfile.mkdtemp(prefix="cutcannon-fonts-"))
-    for f in [*FONTS.glob("*.ttf"), *FONTS.glob("*.otf"), *extra]:
+    for f in [*FONTS.glob("*.ttf"), *FONTS.glob("*.otf"), *files]:
         if not (tmp / f.name).exists():
             (tmp / f.name).symlink_to(f.resolve())
     return tmp, tmp
 
 
-def font_warnings(look, name):
+def font_warnings(look, files=()):
     """Fonts the brand names that this machine doesn't have (libass would quietly substitute)."""
+    out = [f"brand font file missing: {f}" for f in files if not f.exists()]
     if not shutil.which("fc-scan"):
-        return []
+        return out
     have = set()
-    files = [*FONTS.glob("*.[ot]tf"), *((BRANDS / name).glob("*.[ot]tf") if name else [])]
-    for f in files:
+    for f in [*FONTS.glob("*.[ot]tf"), *(f for f in files if f.exists())]:
         r = subprocess.run(["fc-scan", "--format", "%{family}\n%{fullname}\n", str(f)], capture_output=True, text=True)
         for line in r.stdout.splitlines():
             have.update(x.strip().lower() for x in line.split(","))
-    out = []
     for sec in ("captions", "hook"):
         f = look[sec]["font"]
         if f.lower() in have:
@@ -276,7 +303,8 @@ def preview(name, project=None, at=None, hook="The bug took 3 weeks. The fix too
     look = merged(read(name))
     W, H = 1080, 1920
     tmp = Path(tempfile.mkdtemp(prefix="cutcannon-brand-"))
-    fdir, ftmp = fonts_dir(name)
+    files = brand_fonts(name)
+    fdir, ftmp = fonts_dir(files)
     try:
         ws = words.split()
         chunk = [{"w": w} for w in ws]
@@ -304,7 +332,7 @@ def preview(name, project=None, at=None, hook="The bug took 3 weeks. The fix too
                            cwd=tmp, capture_output=True, text=True)
         if r.returncode:
             sys.exit(r.stderr[-1500:])
-        for w in font_warnings(look, name):
+        for w in font_warnings(look, files):
             print("  warning:", w)
         print(out)
         return out

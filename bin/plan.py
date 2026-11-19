@@ -31,7 +31,8 @@ Draft format (Claude writes this):
 }
 save fills tighten/punch_in defaults and freezes the resolved clip times into the
 version (_resolved), so re-transcribing never changes what an old version renders. It also
-freezes a copy of each short's brand (_brand), so editing a brand never changes an old version.
+freezes a copy of each short's brand (_brand: its settings, plus copies of its own font files in
+plans/fonts/), so editing a brand never changes an old version.
 """
 import json, os, sys, time
 from pathlib import Path
@@ -284,7 +285,7 @@ def main():
         for s, r in zip(draft["shorts"], res["shorts"]):
             s["_resolved"] = r["clips"]
             if r["brand"]:
-                s["_brand"] = B.read(r["brand"])  # frozen: the brand as it was at save
+                s["_brand"] = B.freeze(r["brand"], d)  # frozen: settings + its own fonts, as at save
         rec = {"version": v, "parent": current(d), "created": time.strftime("%Y-%m-%d %H:%M:%S"),
                **draft}
         (d / "plans" / f"v{v:03d}.json").write_text(json.dumps(rec, indent=2))

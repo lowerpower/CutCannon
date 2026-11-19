@@ -24,8 +24,9 @@ python bin/brand.py show terminal                  # every field, with the defau
 ```
 
 Use it in a plan with `"brand": "terminal"`, once at the top for every short or on one short.
-`plan.py save` checks the brand and freezes a copy into that version, so editing a brand later
-never changes how an old version renders: save a new version to pick up the change.
+`plan.py save` checks the brand and freezes a copy into that version: its settings, plus copies of
+the brand's own font files in the project's `plans/fonts/`. Editing the brand or swapping its fonts
+later never changes how an old version renders: save a new version to pick up the change.
 
 ## Fields
 

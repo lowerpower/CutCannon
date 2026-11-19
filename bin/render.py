@@ -613,7 +613,8 @@ def render_short(d, meta, words, short, ver, preview, enc):
         cap.release()
 
     look, bname = BR.for_short(short)
-    for w in BR.font_warnings(look, bname):
+    bfonts = BR.brand_fonts(bname, short.get("_brand"), d)  # a saved version uses its font snapshot
+    for w in BR.font_warnings(look, bfonts):
         print("    warning:", w)
     tag = f"{short['id']}_v{ver:03d}" + ("_preview" if preview else "")
     ass = d / "renders" / f"{tag}.ass"
@@ -650,7 +651,7 @@ def render_short(d, meta, words, short, ver, preview, enc):
                   f"afade=t=in:d=0.02,afade=t=out:st={max(dur-0.02,0):.3f}:d=0.02[a{i}]")
     n = len(clips)
     fc.append("".join(f"[v{i}][a{i}]" for i in range(n)) + f"concat=n={n}:v=1:a=1[vc][ac]")
-    fdir, ftmp = BR.fonts_dir(bname)  # a brand's own font files join fonts/
+    fdir, ftmp = BR.fonts_dir(bfonts)  # a brand's own font files join fonts/
     fc.append(f"[vc]subtitles={ass.name}:fontsdir={fdir}[vout]" if use_ass else "[vc]null[vout]")
     au = short.get("audio") or {}
     pre = ([f"highpass=f={au['highpass']}"] if au.get("highpass") else []) + \
