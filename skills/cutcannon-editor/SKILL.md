@@ -1,6 +1,6 @@
 ---
 name: cutcannon-editor
-description: Edit video recordings locally with Claude, either as vertical shorts (captions, hook card, speaker-tracking crop) or as a full-length cleanup (false starts, fillers and dead pauses removed, audio at -14 LUFS). Every cut is a versioned, undoable plan and every render is QA-checked. Use whenever the user wants to cut, clip, propose, clean up, re-cut or re-render a video or a project in projects/, including vague requests like "let's make some clips" or "what's in my projects", where you start by asking which project, what job, and how many clips. Never uploads or posts anything.
+description: Edit video recordings locally with Claude, either as vertical shorts (captions, hook card, speaker-tracking crop) or as a full-length cleanup (false starts, fillers and dead pauses removed, audio at -14 LUFS). Every cut is a versioned, undoable plan and every render is QA-checked. For each finished short it also writes a social media post kit (YouTube Shorts / TikTok / Instagram Reels title, description and hashtags, plus a cover image and caption file). Use whenever the user wants to cut, clip, propose, clean up, re-cut or re-render a video or a project in projects/, or wants titles, descriptions, hashtags, captions or social media posts for its clips, including vague requests like "let's make some clips" or "what's in my projects", where you start by asking which project, what job, and how many clips. Never uploads or posts anything.
 ---
 
 # cutcannon editor
@@ -140,12 +140,13 @@ renders/). Renders stay in the project folder; never copy them elsewhere unless 
    - Tell the user the path to `_frames.png` so they can eyeball the look.
 
 4. **Review loop** — tell the user each short's duration, hook text, which lines were kept/cut and why, the QA result, and the file paths. Then take changes. Every change is a NEW version via `plan.py save`; never edit files in `plans/` directly.
+   - When a short passes QA, end the report with a one-line offer of its post kit (step 5), e.g. *"Want the post kit for s3? YouTube Shorts, TikTok and Instagram Reels titles, descriptions and hashtags, plus a cover and caption file."* Users often don't know CutCannon writes these, so always offer it once per short.
    - `python bin/plan.py list <slug>` — history (`*` = CURRENT)
    - `python bin/plan.py show <slug> [vN]` — resolved times
    - `python bin/plan.py undo <slug>` — back to parent version (nothing deleted)
    - `python bin/plan.py use <slug> vN` — jump to any version
 
-5. **Post kit**: when the user is happy with a short, or asks for titles, descriptions or tags,
+5. **Post kit** (the social media copy): when the user is happy with a short, says yes to your offer, or asks for titles, descriptions, tags, hashtags or social posts,
    write `renders/<tag>_post.json` (`<tag>` = the newest render, e.g. `s3_v004`) and run
    `python bin/postkit.py <slug> [ids]`. It writes the cover (`_cover.jpg`), the caption file (`.srt`,
    same words and fixes as the burned-in captions) and `_post.md`. JSON fields: `source_range`;
