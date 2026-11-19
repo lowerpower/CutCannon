@@ -5,12 +5,13 @@ Renders the CURRENT plan (or --version) to renders/<id>_vNNN.mp4 at 1080x1920.
 --preview renders 540x960 fast for review.
 Nothing is uploaded or posted anywhere.
 """
-import json, os, subprocess, sys, time
+import json, os, shutil, subprocess, sys, time
 from pathlib import Path
 from statistics import median
 
 sys.path.insert(0, str(Path(__file__).parent))
 import plan as P  # noqa: E402
+import brand as BR  # noqa: E402
 
 SF = P.SF
 FONTS = SF / "fonts"
@@ -360,7 +361,9 @@ def caption_words(words, clips, short):
     return out_words, total
 
 
-def build_ass(words, clips, short, W, H, path):
+def build_ass(words, clips, short, W, H, path, look=None):
+    """Burned-in captions + hook card as ASS, styled by the short's brand (default look if none)."""
+    look = look or BR.merged()
     out_words, total = caption_words(words, clips, short)
 
     chunks, cur = [], []
@@ -372,37 +375,20 @@ def build_ass(words, clips, short, W, H, path):
     if cur:
         chunks.append(cur)
 
-    k = W / 1080
-    cap_size, hook_size = int(84 * k), int(96 * k)
-    lines = [
-        "[Script Info]", "ScriptType: v4.00+", f"PlayResX: {W}", f"PlayResY: {H}", "WrapStyle: 0", "",
-        "[V4+ Styles]",
-        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
-        "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
-        "Alignment, MarginL, MarginR, MarginV, Encoding",
-        f"Style: Cap,Montserrat Black,{cap_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,"
-        f"0,0,0,0,100,100,0,0,1,{int(7*k)},{int(3*k)},2,{int(80*k)},{int(80*k)},{int(560*k)},1",
-        f"Style: Hook,Montserrat Black,{hook_size},&H00111111,&H00111111,&H00FFFFFF,&H00FFFFFF,"
-        f"0,0,0,0,100,100,0,0,3,{int(28*k)},0,8,{int(90*k)},{int(90*k)},{int(300*k)},1",
-        "", "[Events]",
-        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-    ]
+    lines = BR.ass_header(look, W, H)
     hook = short.get("hook_text", "").strip()
     if hook:
         hs = min(short["hook_seconds"], total)
         lines.append(f"Dialogue: 2,{ts(0)},{ts(hs)},Hook,,0,0,0,,"
-                     f"{{\\fad(120,180)}}{ass_escape(hook.upper())}")
-    HI = "&H0000E5FF&"
+                     f"{{\\fad(120,180)}}{BR.hook_text(look, hook)}")
     for ci, ch in enumerate(chunks):
         end_chunk = chunks[ci + 1][0]["s"] if ci + 1 < len(chunks) else ch[-1]["e"] + 0.3
         end_chunk = min(end_chunk, ch[-1]["e"] + 0.6)
         for wi, w in enumerate(ch):
             s = w["s"] if wi else ch[0]["s"]
             e = ch[wi + 1]["s"] if wi + 1 < len(ch) else end_chunk
-            txt = " ".join(
-                (f"{{\\c{HI}}}{ass_escape(x['w'].upper())}{{\\c&H00FFFFFF&}}" if j == wi
-                 else ass_escape(x["w"].upper())) for j, x in enumerate(ch))
-            lines.append(f"Dialogue: 1,{ts(s)},{ts(e)},Cap,,0,0,0,,{txt}")
+            for layer, style, text in BR.caption_events(look, ch, wi, W):
+                lines.append(f"Dialogue: {layer},{ts(s)},{ts(e)},{style},,0,0,0,,{text}")
     Path(path).write_text("\n".join(lines) + "\n")
     return total
 
@@ -626,11 +612,15 @@ def render_short(d, meta, words, short, ver, preview, enc):
         keys = [crop_track(cap, det, c, c.get("track", "largest")) for c in clips]
         cap.release()
 
+    look, bname = BR.for_short(short)
+    bfonts = BR.brand_fonts(bname, short.get("_brand"), d)  # a saved version uses its font snapshot
+    for w in BR.font_warnings(look, bfonts):
+        print("    warning:", w)
     tag = f"{short['id']}_v{ver:03d}" + ("_preview" if preview else "")
     ass = d / "renders" / f"{tag}.ass"
     use_ass = bool(short.get("captions", True) or short.get("hook_text", "").strip())
     if use_ass:
-        build_ass(words if short.get("captions", True) else [], clips, short, W, H, ass)
+        build_ass(words if short.get("captions", True) else [], clips, short, W, H, ass, look)
     T["prep"] = time.time() - t0
 
     # 3. one seeked input per segment: decodes only what is used
@@ -661,7 +651,8 @@ def render_short(d, meta, words, short, ver, preview, enc):
                   f"afade=t=in:d=0.02,afade=t=out:st={max(dur-0.02,0):.3f}:d=0.02[a{i}]")
     n = len(clips)
     fc.append("".join(f"[v{i}][a{i}]" for i in range(n)) + f"concat=n={n}:v=1:a=1[vc][ac]")
-    fc.append(f"[vc]subtitles={ass.name}:fontsdir={FONTS}[vout]" if use_ass else "[vc]null[vout]")
+    fdir, ftmp = BR.fonts_dir(bfonts)  # a brand's own font files join fonts/
+    fc.append(f"[vc]subtitles={ass.name}:fontsdir={fdir}[vout]" if use_ass else "[vc]null[vout]")
     au = short.get("audio") or {}
     pre = ([f"highpass=f={au['highpass']}"] if au.get("highpass") else []) + \
           (["afftdn=nf=-25"] if au.get("denoise") else []) + \
@@ -677,7 +668,11 @@ def render_short(d, meta, words, short, ver, preview, enc):
            "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",
            "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-movflags", "+faststart", str(outp)]
     t = time.time()
-    r = subprocess.run(cmd, cwd=d / "renders", capture_output=True, text=True)
+    try:
+        r = subprocess.run(cmd, cwd=d / "renders", capture_output=True, text=True)
+    finally:
+        if ftmp:
+            shutil.rmtree(ftmp, ignore_errors=True)
     if r.returncode:
         print(r.stderr[-2000:])
         sys.exit(f"render failed: {short['id']}")
@@ -693,12 +688,13 @@ def render_short(d, meta, words, short, ver, preview, enc):
             # clips is an edit (QA lists its words for review); within one clip it's a tighten cut
             "clips": [{"start": c["start"], "end": c["end"], "n": c["n"], "clip": c.get("clip")} for c in clips],
             "tighten": tg, "punch_in": bool(short.get("punch_in")), "format": fmt, "audio": au,
+            "brand": bname,
             "crop_keyframes": [[(round(t, 2), round(x, 3)) for t, x in kf] for kf in keys]}
     info_f = d / "renders" / f"{tag}_render.json"
     info_f.write_text(json.dumps(info))
     print(f"  {outp.name}  {planned:.1f}s -> {short['duration']:.1f}s  ({n} segments"
           f"{', punch-in' if short.get('punch_in') else ''})  "
-          f"{enc}{'  HDR->SDR' if hdr else ''}")
+          f"{enc}{'  HDR->SDR' if hdr else ''}{'  brand: ' + bname if bname else ''}")
 
     import qa
     sw_n = sum(len(k) - 1 for k in keys)

@@ -26,6 +26,7 @@ record ─▶ transcribe ─▶ plan ─▶ render ─▶ QA ─▶ tweak / undo
 - **Full-frame cleanup mode** for demos and screen recordings. A pause is only cut when the screen is also still, with the webcam bubble masked out of the motion measurement.
 - **Captions and hook card.** Burned in, word-by-word highlighted, with per-plan `word_fixes` for misheard names.
 - **Stabilization.** For handheld, walking, vehicle or boat footage, `"stabilize": true` in a plan removes camera shake (vid.stab, two passes): deliberate pans stay, the jitter goes. The source is stabilized once per project and cached, with the same frames, timestamps and audio, so cuts, transcript and captions still line up; HDR is tone-mapped in the same pass. Off by default (tripod shots and screen recordings don't need it).
+- **Brands: a look per show.** Caption font, colors and word highlight (colored word or a box behind it), and the hook card (colors, alignment, an optional prompt and cursor for a typed-terminal card), set once per show in `brands/<name>/brand.json`. `brand.py preview` shows it on a still in seconds. Ships with two examples, `terminal` and `gold`.
 - **Color.** iPhone HDR (HLG/PQ) is tone-mapped to SDR BT.709, so it looks right everywhere.
 - **Audio.** Two-pass loudnorm to −14 LUFS / −1.5 dBTP, with optional compression, high-pass, and denoise.
 - **Social media post kit** per short: cover image, `.srt` caption file, and `_post.md` with title, description and tags for YouTube Shorts, TikTok and Instagram Reels (from a `_post.json` Claude writes; the episode link is set once per project).
@@ -112,6 +113,7 @@ and propose as many as the material supports. It always proposes first and rende
 > **"Open on the second story and lose the last sentence."** → new version, re-rendered.
 > **"Write the post kit for s1."** → `s1_v002_post.md`: YouTube Shorts, TikTok and Instagram Reels titles, descriptions and hashtags, plus a cover and a caption file.
 > **"Undo that."**   **"Approve s1."** (recorded, still nothing posted)
+> **"Create a CutCannon brand for my show from its look."** → a preview still to tweak, then every short uses it.
 
 Before recording, try: **"Score these ideas: …"** → the idea picker ranks them and writes your hook.
 
@@ -124,12 +126,14 @@ cutcannon/
 ├── bin/
 │   ├── projects.py          status of every project (what's new, transcribed, rendered, QA)
 │   ├── postkit.py           cover, caption file and YouTube / TikTok / Instagram copy per short
+│   ├── brand.py             per-show looks: list / show / preview
 │   ├── doctor.py            checks the machine, says exactly what to fix (run anytime)
 │   ├── asr.py               speech-to-text backends: mlx-whisper (Apple) / faster-whisper (CUDA, CPU)
 │   ├── transcribe.py        recording → sentence lines, word timings, fillers
 │   ├── plan.py              versioned plans: save / list / show / undo / use / approve / words
 │   ├── render.py            tighten → crop/track → captions + hook → encode → loudnorm → QA
 │   └── qa.py                9 checks + contact sheet
+├── brands/                  a look per show: brand.json (+ fonts); terminal and gold examples
 ├── skills/
 │   ├── cutcannon-idea-picker/SKILL.md
 │   └── cutcannon-editor/SKILL.md
@@ -200,6 +204,7 @@ obvious before anything renders.
 | `audio` | `{}` | `compress`, `highpass` (Hz), `denoise`; loudnorm to −14 LUFS always |
 | `reframe` | `face` | or fixed `center` / `left` / `right` crop |
 | `word_fixes` | `{}` | caption corrections, case-insensitive |
+| `brand` | none | the show's look from `brands/<name>/brand.json`; at the top of the plan for every short, or per short |
 
 `save` validates first, with exact error messages, and freezes the resolved clip times into the version, so re-transcribing later can never change what an old version renders.
 
@@ -294,6 +299,27 @@ Three weeks for one line. Here's what it was.
 
 #debugging #coding #softwareengineering
 ```
+
+### 7. Brands: a look per show
+
+Every show can have its own captions and hook card. Ask *"create a CutCannon brand for my show from
+its look"*, or write `brands/<name>/brand.json` yourself. Only the fields you change are needed:
+
+```json
+{
+ "description": "Typed-terminal hook card and captions with the spoken word on a blue box",
+ "captions": {"font": "Montserrat ExtraBold", "highlight": "#2F6FEB", "highlight_style": "box"},
+ "hook": {"font": "JetBrains Mono", "bold": true, "color": "#F2F2F2", "box": "#0D1117",
+          "uppercase": false, "align": "left", "prefix": "> ", "prefix_color": "#4FA3FF", "cursor": "_"}
+}
+```
+
+```bash
+python bin/brand.py preview terminal podcast-ep12   # one still -> brands/terminal/preview.png
+```
+
+Then put `"brand": "terminal"` in the plan. Saving freezes a copy of the brand into that version,
+so old versions keep their look. Fields and defaults: [brands/README.md](brands/README.md).
 
 ## Known limitations
 

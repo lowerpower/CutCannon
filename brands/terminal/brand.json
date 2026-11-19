@@ -1,0 +1,30 @@
+{
+ "description": "Typed-terminal hook card (monospace, > prompt, cursor) and clean captions with the spoken word on a blue box",
+ "captions": {
+  "font": "Montserrat ExtraBold",
+  "size": 76,
+  "outline_width": 5,
+  "shadow": 2,
+  "highlight": "#2F6FEB",
+  "highlight_style": "box",
+  "highlight_text": "#FFFFFF",
+  "highlight_padding": 10
+ },
+ "hook": {
+  "font": "JetBrains Mono",
+  "bold": true,
+  "size": 62,
+  "color": "#F2F2F2",
+  "box": "#0D1117",
+  "box_opacity": 0.92,
+  "box_padding": 22,
+  "uppercase": false,
+  "align": "left",
+  "margin_side": 70,
+  "margin_top": 260,
+  "prefix": "> ",
+  "prefix_color": "#4FA3FF",
+  "cursor": "_",
+  "cursor_color": "#4FA3FF"
+ }
+}
