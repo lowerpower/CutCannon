@@ -10,3 +10,6 @@ faster-whisper==1.2.1
 ctranslate2==4.8.2
 onnxruntime==1.30.0
 av==18.1.0                   # 19.x breaks faster-whisper 1.2.1 (see requirements.txt)
+# ytpost.py (opt-in YouTube uploads). Verified 2026-11-21 on Linux, Python 3.14.
+google-api-python-client==2.202.0
+google-auth-oauthlib==1.5.0

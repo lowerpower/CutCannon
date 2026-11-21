@@ -9,7 +9,7 @@
 
 **It writes the social media posts too.** For every short, CutCannon makes a ready-to-paste **post kit**: a `_post.md` with the title, description and hashtags for YouTube Shorts, TikTok and Instagram Reels, plus a cover image and a caption file. Ask for it with *"write the post kit for s3"* or *"give me titles and hashtags for all of them"*, and Claude offers it whenever a short passes QA. See [Post kit](#6-post-kit-social-media-copy-for-every-short).
 
-Every edit is a versioned plan you can undo, every render is QA-checked automatically, and **nothing is ever uploaded or posted**.
+Every edit is a versioned plan you can undo, every render is QA-checked automatically, and **nothing is uploaded or posted unless you ask**: the opt-in `ytpost` schedules a YouTube upload, private until its publish time, only when you run it. See [Schedule uploads to YouTube](#8-schedule-uploads-to-youtube-opt-in).
 
 ```
 record ─▶ transcribe ─▶ plan ─▶ render ─▶ QA ─▶ tweak / undo ─▶ post kit ─▶ approve
@@ -30,8 +30,9 @@ record ─▶ transcribe ─▶ plan ─▶ render ─▶ QA ─▶ tweak / undo
 - **Color.** iPhone HDR (HLG/PQ) is tone-mapped to SDR BT.709, so it looks right everywhere.
 - **Audio.** Two-pass loudnorm to −14 LUFS with the true peak at or below −2 dBTP, measured on the finished AAC file (AAC encoding adds peaks, so pass 2 is redone with a lower target when it does), with optional compression, high-pass, and denoise.
 - **Social media post kit** per short: cover image, `.srt` caption file, and `_post.md` with title, description and tags for YouTube Shorts, TikTok and Instagram Reels (from a `_post.json` Claude writes; the episode link is set once per project).
+- **Scheduled YouTube uploads (opt-in).** `ytpost.py` uploads a short with its post kit's title, description, tags and caption track, as a private video with a scheduled publish time (the next free daily slot, or a time you pick), so you can check it in YouTube Studio first. It uses the official YouTube Data API through your own Google Cloud project.
 - **Automatic QA** on every render: A/V sync measured on decoded content, duration, color, loudness, caption coverage, hook card, fillers remaining (the output is re-transcribed), joins (clipped, doubled or stray words at every cut), framing, and motion (a frozen picture, judged on every frame, since sampled stills can't show one). Each render also gets a contact sheet.
-- **Local and private.** Recordings, transcripts, and renders stay on your disk. There is no posting code.
+- **Local and private.** Recordings, transcripts, and renders stay on your disk. The only code that sends anything anywhere is `ytpost.py`, and only when you run it.
 
 ## Requirements
 
@@ -134,6 +135,7 @@ cutcannon/
 ├── bin/
 │   ├── projects.py          status of every project (what's new, transcribed, rendered, QA)
 │   ├── postkit.py           cover, caption file and YouTube / TikTok / Instagram copy per short
+│   ├── ytpost.py            opt-in: scheduled YouTube uploads (private until their publish time)
 │   ├── brand.py             per-show looks: list / show / preview
 │   ├── doctor.py            checks the machine, says exactly what to fix (run anytime)
 │   ├── asr.py               speech-to-text backends: mlx-whisper (Apple) / faster-whisper (CUDA, CPU)
@@ -152,6 +154,7 @@ cutcannon/
         ├── plans/v001.json … CURRENT
         ├── renders/<id>_vNNN.mp4  _qa.json  _frames.png  _render.json
         │          + post kit: _cover.jpg  .srt  _post.json  _post.md
+        │          + _youtube.json    the upload's record, once scheduled with ytpost
         ├── post.json            shared post details: credits, source title, episode link
         └── approvals.json
 ```
@@ -275,7 +278,8 @@ Next to each render (`<tag>` is the newest render, e.g. `s3_v004`) you get:
 
 Details every short shares (show title, credits, the full-episode link) go once in
 `projects/<name>/post.json`. `postkit.py` checks platform limits (YouTube title up to 100 characters,
-at most 30 Instagram hashtags) and flags a missing episode link. It only writes files; you do the posting.
+at most 30 Instagram hashtags) and flags a missing episode link. It only writes files: post them yourself,
+or schedule a YouTube upload with `ytpost.py` ([section 8](#8-schedule-uploads-to-youtube-opt-in)).
 
 A `_post.md` looks like this:
 
@@ -329,6 +333,85 @@ python bin/brand.py preview terminal podcast-ep12   # one still -> brands/termin
 
 Then put `"brand": "terminal"` in the plan. Saving freezes a copy of the brand into that version,
 so old versions keep their look. Fields and defaults: [brands/README.md](brands/README.md).
+
+### 8. Schedule uploads to YouTube (opt-in)
+
+`ytpost.py` uploads a video through the official YouTube Data API as **private, with a scheduled
+publish time**: it goes public on its own at that time, and you can check it in YouTube Studio first.
+The title, description, tags and caption track come from the post kit. Nothing is uploaded unless you
+run it, or ask Claude to schedule a specific short and say yes to its dry run.
+
+**One-time setup** (about 5 minutes, in the Google Cloud console, as the account that owns the channel):
+
+1. Create a project and enable **YouTube Data API v3**.
+2. **Google Auth Platform → Get started**: any app name. Audience **External** for a channel on a
+   personal Google account (**Internal** if it's on a Workspace account in the same organization as the
+   project). For External, then click **Audience → Publish app**: an app left in *Testing* has its
+   sign-in expire after 7 days, and scheduled uploads stop working.
+3. **Clients → Create client → Desktop app**, and download its JSON.
+4. Sign in, once per channel (`mycal` is just your name for the channel):
+
+```bash
+python bin/ytpost.py auth mycal --client-secret ~/Downloads/client_secret_XXXX.json
+#   (add --scope upload for a token that can't edit or delete anything; see Permissions below)
+#   prints a Google link: open it on any device, sign in, pick the channel. Google then sends you to a
+#   127.0.0.1 page that won't load; copy that page's address, then:
+python bin/ytpost.py auth mycal --code 'http://127.0.0.1:8765/?state=...&code=...'
+```
+
+Google says "Google hasn't verified this app" because the app is yours and unreviewed: **Advanced →
+Go to (your app)**. The client secret, each channel's sign-in token and its settings stay in
+`~/.config/cutcannon/youtube/`, readable only by you.
+
+**Permissions.** You choose at sign-in how much the token may do, with `--scope`:
+
+| `--scope` | Google permissions | Can | Can't |
+|---|---|---|---|
+| `full` (default) | `youtube.upload` + `youtube.force-ssl` | upload, schedule, thumbnails, caption tracks, playlists | |
+| `upload` | `youtube.upload` + `youtube.readonly` | upload, schedule, thumbnails, check the channel, `queue` | caption tracks, playlists, or editing or deleting anything |
+
+`full` is needed for caption tracks and playlist adds, and Google only offers those in a permission
+that also lets the token edit and delete the channel's videos, captions and comments. If the token
+is stolen, `upload` limits the damage to new videos (which you can delete); `full` puts the existing
+videos at risk too. Pick `upload` if your shorts have burned-in captions and you don't need playlists.
+Either way the token reaches YouTube only, not the rest of the Google account.
+
+To change permissions, sign in again with the other `--scope` (`set` won't change them). To revoke
+access entirely: Google Account → Security → Third-party apps → your app → remove access.
+
+Sign in with the Google account that owns the channel. People invited through YouTube Studio →
+Permissions (Manager, Editor) can't sign in to a channel through the API; only its owner (or an
+owner or manager of its Brand Account) can.
+
+**Use:**
+
+```bash
+python bin/ytpost.py post mycal podcast-ep12 s3 --dry-run        # what would go up, and when
+python bin/ytpost.py post mycal podcast-ep12 s3                  # next free daily slot
+python bin/ytpost.py post mycal podcast-ep12 s3 --at "2026-12-01 18:30"
+python bin/ytpost.py post mycal --video ~/videos/talk.mp4 --meta ~/videos/talk_post.json   # any video
+python bin/ytpost.py queue mycal                                 # scheduled and recent uploads
+python bin/ytpost.py set mycal slots=10:00,18:00 category_id=28  # change the channel's defaults
+```
+
+| Setting (`set`) | Default | Meaning |
+|---|---|---|
+| `slots` | `10:00` | daily publish times `post` picks from; `--slots` overrides them for one upload |
+| `tz` | `America/Los_Angeles` | time zone for the slots and `--at` |
+| `category_id` | `22` (People & Blogs) | e.g. `28` Science & Technology, `10` Music, `24` Entertainment |
+| `playlist_id` | none | add every upload to this playlist (`--playlist` for one upload) |
+| `min_lead_minutes` | `120` | `post` never picks a slot sooner than this |
+| `caption_language` | `en` | language of the `.srt` caption track |
+
+Other `post` options: `--synthetic` sets YouTube's disclosure for realistic AI-generated or altered
+content; `--thumbnail FILE` sets a custom thumbnail (long-form videos; Shorts don't take one);
+`--no-captions` skips the `.srt`. Each upload writes `<tag>_youtube.json` next to the video, which
+stops the same file going up twice (`--force` overrides). A vertical or square video up to 3 minutes
+becomes a Short.
+
+**Limits.** By default the API allows 100 uploads a day per Google Cloud project, plus 10,000 units a
+day for everything else; a caption track costs 400 units and a playlist add 50, so roughly 20 fully
+dressed uploads a day. The quota resets at midnight Pacific.
 
 ## Known limitations
 

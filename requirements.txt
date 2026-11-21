@@ -8,3 +8,6 @@ onnxruntime==1.30.0          # faster-whisper's VAD
 av==18.1.0
 opencv-python-headless==5.0.0.93
 numpy==2.5.3
+# ytpost.py (opt-in YouTube uploads). Verified 2026-11-21 on Linux, Python 3.14.
+google-api-python-client==2.202.0
+google-auth-oauthlib==1.5.0
