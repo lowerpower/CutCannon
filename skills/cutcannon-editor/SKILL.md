@@ -203,7 +203,8 @@ renders/). Renders stay in the project folder; never copy them elsewhere unless 
      `ytpost.py auth <channel> --code '<address>'` using the 127.0.0.1 address they paste back.
      One-time Google Cloud setup: README, section 8.
    - Permissions are chosen at sign-in: `--scope full` (default: caption tracks and playlists, but the
-     token can also edit and delete videos) or `--scope upload` (add videos only). If an upload reports
+     token can also edit and delete videos) or `--scope upload` (adds videos and can set any video's
+     thumbnail, but can't delete videos or change their details). If an upload reports
      captions or playlist "skipped", the channel was signed in with `upload`; say so rather than
      re-signing in on your own.
 

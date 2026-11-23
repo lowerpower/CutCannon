@@ -353,7 +353,7 @@ run it, or ask Claude to schedule a specific short and say yes to its dry run.
 
 ```bash
 python bin/ytpost.py auth mycal --client-secret ~/Downloads/client_secret_XXXX.json
-#   (add --scope upload for a token that can't edit or delete anything; see Permissions below)
+#   (add --scope upload for a token that can't delete videos or change their details; see Permissions)
 #   prints a Google link: open it on any device, sign in, pick the channel. Google then sends you to a
 #   127.0.0.1 page that won't load; copy that page's address, then:
 python bin/ytpost.py auth mycal --code 'http://127.0.0.1:8765/?state=...&code=...'
@@ -367,14 +367,21 @@ Go to (your app)**. The client secret, each channel's sign-in token and its sett
 
 | `--scope` | Google permissions | Can | Can't |
 |---|---|---|---|
-| `full` (default) | `youtube.upload` + `youtube.force-ssl` | upload, schedule, thumbnails, caption tracks, playlists | |
-| `upload` | `youtube.upload` + `youtube.readonly` | upload, schedule, thumbnails, check the channel, `queue` | caption tracks, playlists, or editing or deleting anything |
+| `full` (default) | `youtube.upload` + `youtube.force-ssl` | everything `upload` can, plus caption tracks, playlists, and editing or deleting the channel's videos, captions and comments | |
+| `upload` | `youtube.upload` + `youtube.readonly` | upload and schedule videos; set the thumbnail of **any** of the channel's videos; see the whole channel, private and scheduled videos included (the channel check, `queue`) | caption tracks, playlists, deleting videos, or changing an existing video's title, description, privacy or captions |
 
 `full` is needed for caption tracks and playlist adds, and Google only offers those in a permission
-that also lets the token edit and delete the channel's videos, captions and comments. If the token
-is stolen, `upload` limits the damage to new videos (which you can delete); `full` puts the existing
-videos at risk too. Pick `upload` if your shorts have burned-in captions and you don't need playlists.
-Either way the token reaches YouTube only, not the rest of the Google account.
+that also lets the token edit and delete the channel's videos, captions and comments. If the token is
+stolen:
+
+- with `upload`, the thief can add videos, replace the thumbnail of any existing video (Google's
+  thumbnail permission isn't limited to videos the token uploaded) and see everything on the channel,
+  including private and scheduled videos; they can't delete videos or change their titles,
+  descriptions or privacy.
+- with `full`, they can also edit or delete the existing videos, captions and comments.
+
+Pick `upload` if your shorts have burned-in captions and you don't need playlists. Either way the
+token reaches YouTube only, not the rest of the Google account.
 
 To change permissions, sign in again with the other `--scope` (`set` won't change them). To revoke
 access entirely: Google Account → Security → Third-party apps → your app → remove access.

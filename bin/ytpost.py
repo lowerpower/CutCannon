@@ -43,7 +43,9 @@ Permissions (chosen at sign-in, kept in the settings as "scope"; change them by 
   full    (default) youtube.upload + youtube.force-ssl: everything, including caption tracks and
           playlists. The token can also edit and delete the channel's videos and comments.
   upload  youtube.upload + youtube.readonly: uploads, thumbnails, the channel check and queue, but
-          no caption tracks or playlists. The token can add videos but not edit or delete anything.
+          no caption tracks or playlists. The token can add videos, replace the thumbnail of any of
+          the channel's videos and see the whole channel (private videos too), but can't delete
+          videos or change their titles, descriptions or privacy.
 Revoke either one at Google Account > Security > Third-party apps.
 
 The meta file is a cutcannon post kit (<tag>_post.json). Only its "youtube" section is used:
@@ -71,7 +73,7 @@ CONF = Path.home() / ".config" / "cutcannon" / "youtube"
 AUTH = "https://www.googleapis.com/auth/"
 SCOPE_SETS = {
     "full": [AUTH + "youtube.upload", AUTH + "youtube.force-ssl"],   # + captions, playlists, edit, delete
-    "upload": [AUTH + "youtube.upload", AUTH + "youtube.readonly"],  # add videos, read; no edits
+    "upload": [AUTH + "youtube.upload", AUTH + "youtube.readonly"],  # add videos, thumbnails, read
 }
 MANAGE = AUTH + "youtube.force-ssl"   # what caption tracks and playlist adds need
 REDIRECT = "http://127.0.0.1:8765/"
