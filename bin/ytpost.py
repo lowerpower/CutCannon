@@ -51,8 +51,10 @@ Revoke either one at Google Account > Security > Third-party apps.
 The meta file is a cutcannon post kit (<tag>_post.json). Only its "youtube" section is used:
   {"youtube": {"title": "...", "description": "...", "hashtags": "#Shorts", "tags": ["..."],
                "made_for_kids": false}}        (made_for_kids is optional)
-For a cutcannon short, the project's post.json "credits" line goes in the description, as in
-the _post.md that postkit writes.
+For a cutcannon short, the project's credit line goes in the description, as in the _post.md that
+postkit writes: post.json's "credits", or by default "Full episode: {episode_link}". A project with
+no episode link needs "credits": "" in its post.json (no credit line) or an episode_link; a video
+given with --video gets no credit line.
 """
 import argparse
 import datetime as dt
@@ -263,18 +265,20 @@ def cutcannon_source(project, sid):
     return mp4, meta, json.loads(shared_f.read_text()) if shared_f.exists() else {}
 
 
-def compose(meta_f, shared):
-    """Title, description and tags, checked against YouTube's limits."""
+def compose(meta_f, shared, project=False):
+    """Title, description, tags and made_for_kids, checked against YouTube's limits. For a cutcannon
+    project the credit line follows postkit: post.json's "credits", default "Full episode: {episode_link}"."""
     yt = json.loads(meta_f.read_text()).get("youtube") or {}
     title = " ".join((yt.get("title") or "").split())
     parts = [(yt.get("description") or "").strip()]
-    if shared.get("credits"):
-        credits = shared["credits"]
-        if "{episode_link}" in credits:
-            if not shared.get("episode_link"):
-                die("the project's post.json credits use {episode_link}, but episode_link isn't set")
-            credits = credits.replace("{episode_link}", shared["episode_link"])
-        parts.append(credits.strip())
+    credits = (shared.get("credits", "Full episode: {episode_link}") or "").strip() if project else ""
+    if "{episode_link}" in credits:
+        if not shared.get("episode_link"):
+            die("this short's post kit credits the full episode, but the project's post.json has no "
+                "episode_link: set it, or set \"credits\": \"\" in post.json for no credit line")
+        credits = credits.replace("{episode_link}", shared["episode_link"])
+    if credits:
+        parts.append(credits)
     if yt.get("hashtags"):
         parts.append(yt["hashtags"].strip())
     desc = "\n\n".join(p for p in parts if p)
@@ -413,7 +417,7 @@ def cmd_post(a):
     else:
         die("give <project> <short_id>, or --video FILE")
 
-    title, desc, tags, meta_kids = compose(meta, shared)
+    title, desc, tags, meta_kids = compose(meta, shared, project=not a.video)
     for value, source in ((yes_no(a.made_for_kids, "--made-for-kids"), "--made-for-kids"),
                           (meta_kids, meta.name), (yes_no(s.get("made_for_kids"), "setting"), "channel setting")):
         if value is not None:

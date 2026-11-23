@@ -338,8 +338,11 @@ so old versions keep their look. Fields and defaults: [brands/README.md](brands/
 
 `ytpost.py` uploads a video through the official YouTube Data API as **private, with a scheduled
 publish time**: it goes public on its own at that time, and you can check it in YouTube Studio first.
-The title, description, tags and caption track come from the post kit. Nothing is uploaded unless you
-run it, or ask Claude to schedule a specific short and say yes to its dry run.
+The title, description (with the project's credit line, exactly as in the `_post.md`), tags and caption
+track come from the post kit. A project with no full episode to link needs `"credits": ""` in its
+`post.json`; otherwise an upload stops until `episode_link` is set, rather than going up with the
+`[EPISODE LINK]` placeholder. Nothing is uploaded unless you run it, or ask Claude to schedule a
+specific short and say yes to its dry run.
 
 **One-time setup** (about 5 minutes, in the Google Cloud console, as the account that owns the channel):
 
