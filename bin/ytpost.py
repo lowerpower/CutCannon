@@ -11,7 +11,7 @@ YouTube Studio before it goes public.
   ytpost.py post <channel> --video FILE [--meta FILE]  any video; meta defaults to <video>_post.json
   ytpost.py queue <channel> [--offline]                recent and scheduled uploads, with live status
   ytpost.py set <channel> [key=value ...]              show or change the channel's settings, e.g.
-                                                       slots=10:00,18:00  category_id=28  playlist_id=PL...
+                                                       slots=10:00,18:00  category_id=28  made_for_kids=no
 
 post options:
   --at "YYYY-MM-DD HH:MM"  publish time, in the channel's time zone
@@ -19,6 +19,8 @@ post options:
   --slots 10:00,18:00      use these daily slots for this upload's --next, not the settings'
   --playlist ID            also add to this playlist (default: the settings' playlist_id)
   --synthetic              disclose realistic altered or synthetic content (YouTube's AI label)
+  --made-for-kids yes|no   YouTube's audience designation for this upload (else the meta file's
+                           youtube.made_for_kids, else the channel's made_for_kids setting)
   --category N             YouTube category id (default from settings; 10 is Music)
   --thumbnail FILE         custom thumbnail (long-form videos; Shorts don't take one)
   --no-captions            don't upload the .srt next to the video as a caption track
@@ -29,8 +31,11 @@ Per-channel files in ~/.config/cutcannon/youtube/ (directory 0700, files 0600):
   client_secret.json     the Desktop OAuth client from Google Cloud (shared by all channels)
   <channel>.token.json   the channel's refresh token (written by auth)
   <channel>.json         settings (ytpost.py set): channel_id, tz, slots, category_id, playlist_id,
-                         min_lead_minutes, caption_language. Defaults: one slot a day at 10:00
-                         America/Los_Angeles, category 22 (People & Blogs, YouTube's own default)
+                         made_for_kids, min_lead_minutes, caption_language. Defaults: one slot a day
+                         at 10:00 America/Los_Angeles, category 22 (People & Blogs, YouTube's own
+                         default). made_for_kids has no default: uploads stop until it's chosen.
+  <channel>.lock         held during an upload, so overlapping runs can't pick the same slot
+Next to each video, .<video>_youtube.lock is held during its upload, so it can't go up twice at once.
   <channel>.log.jsonl    one line per upload (used by --next and queue)
 Each upload also writes <video>_youtube.json next to the video, which stops a second upload.
 
@@ -42,12 +47,14 @@ Permissions (chosen at sign-in, kept in the settings as "scope"; change them by 
 Revoke either one at Google Account > Security > Third-party apps.
 
 The meta file is a cutcannon post kit (<tag>_post.json). Only its "youtube" section is used:
-  {"youtube": {"title": "...", "description": "...", "hashtags": "#Shorts", "tags": ["..."]}}
+  {"youtube": {"title": "...", "description": "...", "hashtags": "#Shorts", "tags": ["..."],
+               "made_for_kids": false}}        (made_for_kids is optional)
 For a cutcannon short, the project's post.json "credits" line goes in the description, as in
 the _post.md that postkit writes.
 """
 import argparse
 import datetime as dt
+import fcntl
 import json
 import os
 import re
@@ -69,12 +76,14 @@ SCOPE_SETS = {
 MANAGE = AUTH + "youtube.force-ssl"   # what caption tracks and playlist adds need
 REDIRECT = "http://127.0.0.1:8765/"
 DEFAULTS = {"tz": "America/Los_Angeles", "slots": ["10:00"], "category_id": "22",
-            "playlist_id": None, "min_lead_minutes": 120, "caption_language": "en"}
+            "playlist_id": None, "made_for_kids": None, "min_lead_minutes": 120,
+            "caption_language": "en"}
 SETTABLE = {
     "slots": "daily publish times for --next, comma-separated HH:MM (e.g. 10:00,18:00)",
     "tz": "time zone for slots and --at (e.g. America/Los_Angeles)",
     "category_id": "YouTube category: 28 Science & Technology, 10 Music, 22 People & Blogs, 24 Entertainment",
     "playlist_id": "playlist every upload is added to (none to clear)",
+    "made_for_kids": "yes or no: YouTube's made-for-kids designation for uploads (no default; required)",
     "min_lead_minutes": "--next never picks a slot sooner than this (at least 15)",
     "caption_language": "language of the .srt caption track (e.g. en)",
 }
@@ -94,6 +103,33 @@ def private_write(path, text):
     with os.fdopen(fd, "w") as f:
         f.write(text)
     os.chmod(path, 0o600)
+
+
+LOCKS = []   # open lock files; each lock is held until the process exits
+
+
+def hold_lock(path, what):
+    """Exclusive lock on path, waiting (and saying so) while another ytpost holds it."""
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fh = open(path, "a")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print(f"waiting for another ytpost upload of {what} to finish...", flush=True)
+        fcntl.flock(fh, fcntl.LOCK_EX)
+    LOCKS.append(fh)
+
+
+def yes_no(v, what):
+    """True/False from yes/no (or a JSON boolean); None stays None."""
+    if v is None or isinstance(v, bool):
+        return v
+    t = str(v).strip().lower()
+    if t in ("yes", "y", "true"):
+        return True
+    if t in ("no", "n", "false"):
+        return False
+    die(f"{what} must be yes or no (got {v!r})")
 
 
 def settings(ch):
@@ -255,7 +291,7 @@ def compose(meta_f, shared):
         probs.append("tags are over YouTube's 500-character limit")
     if probs:
         die(f"{meta_f.name}: " + "; ".join(probs))
-    return title, desc, tags
+    return title, desc, tags, yes_no(yt.get("made_for_kids"), f"{meta_f.name}: youtube.made_for_kids")
 
 
 def probe(mp4):
@@ -375,7 +411,22 @@ def cmd_post(a):
     else:
         die("give <project> <short_id>, or --video FILE")
 
-    title, desc, tags = compose(meta, shared)
+    title, desc, tags, meta_kids = compose(meta, shared)
+    for value, source in ((yes_no(a.made_for_kids, "--made-for-kids"), "--made-for-kids"),
+                          (meta_kids, meta.name), (yes_no(s.get("made_for_kids"), "setting"), "channel setting")):
+        if value is not None:
+            kids, kids_from = value, source
+            break
+    else:
+        kids, kids_from = None, None
+        if not a.dry_run:
+            die(f"choose the audience first: ytpost.py set {a.channel} made_for_kids=no (or yes), "
+                "or --made-for-kids yes|no for this upload")
+    if not a.dry_run:
+        # Held until the process exits: the duplicate check, the slot choice and the records below
+        # can't interleave with another upload of this video or to this channel.
+        hold_lock(mp4.with_name(f".{mp4.stem}_youtube.lock"), mp4.name)
+        hold_lock(CONF / f"{a.channel}.lock", f"channel '{a.channel}'")
     record_f = mp4.with_name(f"{mp4.stem}_youtube.json")
     if record_f.exists() and not a.force:
         die(f"{mp4.name} was already uploaded as {json.loads(record_f.read_text())['url']} "
@@ -406,6 +457,9 @@ def cmd_post(a):
     print(f"title:       {title}")
     print(f"tags:        {', '.join(tags) or '-'}")
     print(f"category:    {category}    AI disclosure: {'yes' if a.synthetic else 'no'}")
+    print("audience:    " + (f"{'made for kids' if kids else 'not made for kids'} (from {kids_from})"
+                             if kids is not None else
+                             f"NOT SET: set {a.channel} made_for_kids=no|yes, or --made-for-kids"))
     skip = "" if manage else " (skipped: needs --scope full)"
     print(f"captions:    {(srt.name + skip) if srt else '-'}    playlist: {(playlist + skip) if playlist else '-'}"
           f"    thumbnail: {thumb.name if thumb else '-'}")
@@ -424,7 +478,7 @@ def cmd_post(a):
 
     body = {"snippet": {"title": title, "description": desc, "tags": tags, "categoryId": category},
             "status": {"privacyStatus": "private", "publishAt": utc_iso(when),
-                       "selfDeclaredMadeForKids": False, "containsSyntheticMedia": bool(a.synthetic)}}
+                       "selfDeclaredMadeForKids": kids, "containsSyntheticMedia": bool(a.synthetic)}}
     media = MediaFileUpload(str(mp4), mimetype="video/*", chunksize=16 * 1024 * 1024, resumable=True)
     print("\nuploading...")
     vid = run_upload(yt.videos().insert(part="snippet,status", body=body, media_body=media))["id"]
@@ -482,13 +536,21 @@ def cmd_set(a):
             die("category_id is a number, e.g. 28")
         elif k == "playlist_id" and v.lower() in ("", "none"):
             v = None
+        elif k == "made_for_kids":
+            v = yes_no(v, "made_for_kids")
         s[k] = v
     if a.pairs:
         private_write(CONF / f"{a.channel}.json", json.dumps(s, indent=2) + "\n")
     for k in ("channel_title", "channel_id", "scope", *SETTABLE):
         if k in s:
             v = s[k]
-            print(f"{k:<17} {', '.join(v) if isinstance(v, list) else v}")
+            if isinstance(v, list):
+                v = ", ".join(v)
+            elif isinstance(v, bool):
+                v = "yes" if v else "no"
+            elif v is None:
+                v = "not set"
+            print(f"{k:<17} {v}")
 
 
 def cmd_queue(a):
@@ -541,6 +603,7 @@ def main():
     p.add_argument("--slots")
     p.add_argument("--playlist")
     p.add_argument("--synthetic", action="store_true")
+    p.add_argument("--made-for-kids", choices=["yes", "no"])
     p.add_argument("--category")
     p.add_argument("--thumbnail")
     p.add_argument("--no-captions", action="store_true")

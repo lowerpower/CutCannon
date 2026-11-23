@@ -391,6 +391,7 @@ python bin/ytpost.py post mycal podcast-ep12 s3                  # next free dai
 python bin/ytpost.py post mycal podcast-ep12 s3 --at "2026-12-01 18:30"
 python bin/ytpost.py post mycal --video ~/videos/talk.mp4 --meta ~/videos/talk_post.json   # any video
 python bin/ytpost.py queue mycal                                 # scheduled and recent uploads
+python bin/ytpost.py set mycal made_for_kids=no                  # once per channel: your audience designation
 python bin/ytpost.py set mycal slots=10:00,18:00 category_id=28  # change the channel's defaults
 ```
 
@@ -400,14 +401,17 @@ python bin/ytpost.py set mycal slots=10:00,18:00 category_id=28  # change the ch
 | `tz` | `America/Los_Angeles` | time zone for the slots and `--at` |
 | `category_id` | `22` (People & Blogs) | e.g. `28` Science & Technology, `10` Music, `24` Entertainment |
 | `playlist_id` | none | add every upload to this playlist (`--playlist` for one upload) |
+| `made_for_kids` | not set | YouTube's made-for-kids designation, `yes` or `no`. It's yours to declare, so there's no default: uploads stop until you set it (or pass `--made-for-kids`, or put `"made_for_kids"` in the post kit's `youtube` section) |
 | `min_lead_minutes` | `120` | `post` never picks a slot sooner than this |
 | `caption_language` | `en` | language of the `.srt` caption track |
 
 Other `post` options: `--synthetic` sets YouTube's disclosure for realistic AI-generated or altered
 content; `--thumbnail FILE` sets a custom thumbnail (long-form videos; Shorts don't take one);
-`--no-captions` skips the `.srt`. Each upload writes `<tag>_youtube.json` next to the video, which
-stops the same file going up twice (`--force` overrides). A vertical or square video up to 3 minutes
-becomes a Short.
+`--no-captions` skips the `.srt`; `--made-for-kids yes|no` sets the audience for one upload. The dry
+run shows the audience and where it came from. Each upload writes `<tag>_youtube.json` next to the
+video, which stops the same file going up twice (`--force` overrides), and runs hold a lock on the
+video and on the channel, so two at once can't upload the same file or take the same slot. A
+vertical or square video up to 3 minutes becomes a Short.
 
 **Limits.** By default the API allows 100 uploads a day per Google Cloud project, plus 10,000 units a
 day for everything else; a caption track costs 400 units and a playlist add 50, so roughly 20 fully

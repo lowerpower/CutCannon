@@ -193,6 +193,8 @@ renders/). Renders stay in the project folder; never copy them elsewhere unless 
    links it prints. Any video works, not just a CutCannon short: `--video FILE --meta <file>_post.json`.
    - Ask about `--synthetic` (YouTube's disclosure for realistic AI-generated or altered people, places
      or events) when the video might need it; don't guess.
+   - The made-for-kids designation is the channel owner's to declare. If the dry run says the audience
+     is NOT SET, ask the user, then `ytpost.py set <channel> made_for_kids=no|yes`; never pick it yourself.
    - `ytpost.py queue <channel>` lists scheduled and recent uploads; `ytpost.py set <channel> [key=value]`
      shows or changes the daily slots, category and playlist.
    - Never pass `--force` (a second upload of the same file) unless the user asks for a duplicate.
