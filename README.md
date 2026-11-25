@@ -407,7 +407,7 @@ python bin/ytpost.py set mychannel slots=10:00,18:00 category_id=28  # change th
 
 | Setting (`set`) | Default | Meaning |
 |---|---|---|
-| `slots` | `10:00` | daily publish times `post` picks from; `--slots` overrides them for one upload |
+| `slots` | `10:00` | daily publish times `post` picks from; `--slots` overrides them for one upload. On daylight-saving days, a slot the clocks skip is skipped that day, and in the hour that repeats the earlier occurrence still far enough ahead is used. An `--at` time that happens twice needs its offset, e.g. `"2027-11-07 01:30-08:00"` |
 | `tz` | `America/Los_Angeles` | time zone for the slots and `--at` |
 | `category_id` | `22` (People & Blogs) | e.g. `28` Science & Technology, `10` Music, `24` Entertainment |
 | `playlist_id` | none | add every upload to this playlist (`--playlist` for one upload) |

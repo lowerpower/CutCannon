@@ -334,34 +334,56 @@ def parse_slots(text):
     return sorted(out)
 
 
-def next_slot(s, ch, slots=None):
+def local_times(day, t, tz):
+    """The real instants a wall-clock time names on a day, earliest first: two in the hour that
+    repeats when clocks fall back, none in the hour skipped when they spring forward."""
+    out = {}
+    for fold in (0, 1):
+        cand = dt.datetime.combine(day, t, tz).replace(fold=fold)
+        back = cand.astimezone(dt.timezone.utc).astimezone(tz)
+        if back.date() == day and back.time() == t:   # else it doesn't exist on this day
+            out.setdefault(cand.timestamp(), cand)
+    return [out[k] for k in sorted(out)]
+
+
+def next_slot(s, ch, slots=None, now=None):
+    """The first free slot at least min_lead_minutes away. Compared as UTC instants: two aware
+    datetimes in the same zone compare by wall clock, which is wrong across a DST change."""
     tz = ZoneInfo(s["tz"])
-    now = dt.datetime.now(tz)
-    earliest = now + dt.timedelta(minutes=int(s["min_lead_minutes"]))
+    now = now or dt.datetime.now(dt.timezone.utc)
+    earliest = now.timestamp() + 60 * int(s["min_lead_minutes"])
     taken = {e.get("publish_at") for e in read_log(ch)}
     slots = sorted(dt.time.fromisoformat(x) for x in (slots or s["slots"]))
     if not slots:
         die("the channel settings have no slots; add some, e.g. \"slots\": [\"10:00\"]")
-    day = now.date()
+    day = now.astimezone(tz).date()
     for _ in range(366):
-        for t in slots:
-            cand = dt.datetime.combine(day, t, tz)
-            if cand >= earliest and utc_iso(cand) not in taken:
+        for cand in sorted((c for t in slots for c in local_times(day, t, tz)), key=lambda c: c.timestamp()):
+            if cand.timestamp() >= earliest and utc_iso(cand) not in taken:
                 return cand
         day += dt.timedelta(days=1)
     die("no free slot in the next year")
 
 
-def parse_at(text, s):
+def parse_at(text, s, now=None):
     tz = ZoneInfo(s["tz"])
     try:
         t = dt.datetime.fromisoformat(text.strip().replace(" ", "T"))
     except ValueError:
         die(f'--at wants "YYYY-MM-DD HH:MM" (got {text!r})')
-    t = t if t.tzinfo else t.replace(tzinfo=tz)
-    if t < dt.datetime.now(tz) + dt.timedelta(minutes=15):
+    if t.tzinfo is None:
+        times = local_times(t.date(), t.time(), tz)
+        if not times:
+            die(f"{text} doesn't exist in {s['tz']}: the clocks skip that time that day")
+        if len(times) > 1:
+            a, b = (x.isoformat(" ", "minutes") for x in times)
+            die(f"{text} happens twice in {s['tz']} (the clocks fall back that night): "
+                f'give the offset, "{a}" or "{b}"')
+        t = times[0]
+    now = now or dt.datetime.now(dt.timezone.utc)
+    if t.timestamp() < now.timestamp() + 15 * 60:
         die("--at must be at least 15 minutes from now")
-    return t
+    return t.astimezone(tz)
 
 
 # --- Upload ---------------------------------------------------------------------------------
