@@ -412,7 +412,7 @@ python bin/ytpost.py set mychannel slots=10:00,18:00 category_id=28  # change th
 | `category_id` | `22` (People & Blogs) | e.g. `28` Science & Technology, `10` Music, `24` Entertainment |
 | `playlist_id` | none | add every upload to this playlist (`--playlist` for one upload) |
 | `made_for_kids` | not set | YouTube's made-for-kids designation, `yes` or `no`. It's yours to declare, so there's no default: uploads stop until you set it (or pass `--made-for-kids`, or put `"made_for_kids"` in the post kit's `youtube` section) |
-| `min_lead_minutes` | `120` | `post` never picks a slot sooner than this |
+| `min_lead_minutes` | `120` | `post` never picks a slot sooner than this (at least 30) |
 | `caption_language` | `en` | language of the `.srt` caption track |
 
 Other `post` options: `--synthetic` sets YouTube's disclosure for realistic AI-generated or altered
@@ -422,6 +422,11 @@ run shows the audience and where it came from. Each upload writes `<tag>_youtube
 video, which stops the same file going up twice (`--force` overrides), and runs hold a lock on the
 video and on the channel, so two at once can't upload the same file or take the same slot. A
 vertical or square video up to 3 minutes becomes a Short.
+
+A publish time must be at least 30 minutes away. YouTube publishes a video at once if its publish
+time has already passed when the upload finishes, so before each chunk `ytpost` checks the upload
+can still finish at least 15 minutes ahead of it; if not, it stops, nothing is created on YouTube,
+and you run it again with a later time.
 
 **Limits.** By default the API allows 100 uploads a day per Google Cloud project, plus 10,000 units a
 day for everything else; a caption track costs 400 units and a playlist add 50, so roughly 20 fully

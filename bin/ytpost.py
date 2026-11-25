@@ -14,7 +14,9 @@ YouTube Studio before it goes public.
                                                        slots=10:00,18:00  category_id=28  made_for_kids=no
 
 post options:
-  --at "YYYY-MM-DD HH:MM"  publish time, in the channel's time zone
+  --at "YYYY-MM-DD HH:MM"  publish time, in the channel's time zone, at least 30 minutes ahead. If
+                           the upload would finish less than 15 minutes before it, ytpost stops
+                           the upload and nothing is created on YouTube.
   --next                   next free slot from the channel's settings (the default)
   --slots 10:00,18:00      use these daily slots for this upload's --next, not the settings'
   --playlist ID            also add to this playlist (default: the settings' playlist_id)
@@ -88,10 +90,12 @@ SETTABLE = {
     "category_id": "YouTube category: 28 Science & Technology, 10 Music, 22 People & Blogs, 24 Entertainment",
     "playlist_id": "playlist every upload is added to (none to clear)",
     "made_for_kids": "yes or no: YouTube's made-for-kids designation for uploads (no default; required)",
-    "min_lead_minutes": "--next never picks a slot sooner than this (at least 15)",
+    "min_lead_minutes": "--next never picks a slot sooner than this (at least 30)",
     "caption_language": "language of the .srt caption track (e.g. en)",
 }
 RETRY_STATUS = (500, 502, 503, 504)
+REVIEW_MINUTES = 15   # an upload must finish at least this long before its publish time
+MIN_LEAD_MINUTES = 30  # the soonest publish time accepted: time to upload, plus the review window
 
 os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 
@@ -351,7 +355,7 @@ def next_slot(s, ch, slots=None, now=None):
     datetimes in the same zone compare by wall clock, which is wrong across a DST change."""
     tz = ZoneInfo(s["tz"])
     now = now or dt.datetime.now(dt.timezone.utc)
-    earliest = now.timestamp() + 60 * int(s["min_lead_minutes"])
+    earliest = now.timestamp() + 60 * max(int(s["min_lead_minutes"]), MIN_LEAD_MINUTES)
     taken = {e.get("publish_at") for e in read_log(ch)}
     slots = sorted(dt.time.fromisoformat(x) for x in (slots or s["slots"]))
     if not slots:
@@ -381,17 +385,25 @@ def parse_at(text, s, now=None):
                 f'give the offset, "{a}" or "{b}"')
         t = times[0]
     now = now or dt.datetime.now(dt.timezone.utc)
-    if t.timestamp() < now.timestamp() + 15 * 60:
-        die("--at must be at least 15 minutes from now")
+    if t.timestamp() < now.timestamp() + MIN_LEAD_MINUTES * 60:
+        die(f"--at must be at least {MIN_LEAD_MINUTES} minutes from now (time to upload, plus "
+            f"{REVIEW_MINUTES} minutes to check the video before it goes public)")
     return t.astimezone(tz)
 
 
 # --- Upload ---------------------------------------------------------------------------------
 
-def run_upload(req):
+def run_upload(req, publish_ts):
+    """Send a resumable upload, chunk by chunk. YouTube creates the video only when the last chunk
+    lands, and a publishAt already past by then publishes it at once; so before each chunk, make sure
+    the upload can still finish with REVIEW_MINUTES to spare, or stop with nothing created."""
     from googleapiclient.errors import HttpError
     resp, tries, shown = None, 0, -1
     while resp is None:
+        if time.time() > publish_ts - REVIEW_MINUTES * 60:
+            die(f"stopped the upload: it would finish less than {REVIEW_MINUTES} minutes before its publish "
+                "time, leaving no time to check it. Nothing was created on YouTube; run it again with a "
+                "later --at (or a larger min_lead_minutes).")
         try:
             status, resp = req.next_chunk()
             if status and int(status.progress() * 10) != shown:
@@ -509,7 +521,8 @@ def cmd_post(a):
                        "selfDeclaredMadeForKids": kids, "containsSyntheticMedia": bool(a.synthetic)}}
     media = MediaFileUpload(str(mp4), mimetype="video/*", chunksize=16 * 1024 * 1024, resumable=True)
     print("\nuploading...")
-    vid = run_upload(yt.videos().insert(part="snippet,status", body=body, media_body=media))["id"]
+    vid = run_upload(yt.videos().insert(part="snippet,status", body=body, media_body=media),
+                     when.timestamp())["id"]
     rec = {"video_id": vid, "url": f"https://youtu.be/{vid}", "studio": f"https://studio.youtube.com/video/{vid}/edit",
            "channel": a.channel, "channel_id": got, "title": title, "publish_at": utc_iso(when),
            "file": str(mp4), "uploaded_at": utc_iso(dt.datetime.now(dt.timezone.utc))}
@@ -557,8 +570,8 @@ def cmd_set(a):
             except Exception:
                 die(f"unknown time zone {v!r}")
         elif k == "min_lead_minutes":
-            if not v.isdigit() or int(v) < 15:
-                die("min_lead_minutes must be a whole number, at least 15")
+            if not v.isdigit() or int(v) < MIN_LEAD_MINUTES:
+                die(f"min_lead_minutes must be a whole number, at least {MIN_LEAD_MINUTES}")
             v = int(v)
         elif k == "category_id" and not v.isdigit():
             die("category_id is a number, e.g. 28")
