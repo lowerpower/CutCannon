@@ -352,14 +352,14 @@ specific short and say yes to its dry run.
    project). For External, then click **Audience → Publish app**: an app left in *Testing* has its
    sign-in expire after 7 days, and scheduled uploads stop working.
 3. **Clients → Create client → Desktop app**, and download its JSON.
-4. Sign in, once per channel (`mycal` is just your name for the channel):
+4. Sign in, once per channel (`mychannel` is just your name for the channel):
 
 ```bash
-python bin/ytpost.py auth mycal --client-secret ~/Downloads/client_secret_XXXX.json
+python bin/ytpost.py auth mychannel --client-secret ~/Downloads/client_secret_XXXX.json
 #   (add --scope upload for a token that can't delete videos or change their details; see Permissions)
 #   prints a Google link: open it on any device, sign in, pick the channel. Google then sends you to a
 #   127.0.0.1 page that won't load; copy that page's address, then:
-python bin/ytpost.py auth mycal --code 'http://127.0.0.1:8765/?state=...&code=...'
+python bin/ytpost.py auth mychannel --code 'http://127.0.0.1:8765/?state=...&code=...'
 ```
 
 Google says "Google hasn't verified this app" because the app is yours and unreviewed: **Advanced →
@@ -396,13 +396,13 @@ owner or manager of its Brand Account) can.
 **Use:**
 
 ```bash
-python bin/ytpost.py post mycal podcast-ep12 s3 --dry-run        # what would go up, and when
-python bin/ytpost.py post mycal podcast-ep12 s3                  # next free daily slot
-python bin/ytpost.py post mycal podcast-ep12 s3 --at "2026-12-01 18:30"
-python bin/ytpost.py post mycal --video ~/videos/talk.mp4 --meta ~/videos/talk_post.json   # any video
-python bin/ytpost.py queue mycal                                 # scheduled and recent uploads
-python bin/ytpost.py set mycal made_for_kids=no                  # once per channel: your audience designation
-python bin/ytpost.py set mycal slots=10:00,18:00 category_id=28  # change the channel's defaults
+python bin/ytpost.py post mychannel podcast-ep12 s3 --dry-run        # what would go up, and when
+python bin/ytpost.py post mychannel podcast-ep12 s3                  # next free daily slot
+python bin/ytpost.py post mychannel podcast-ep12 s3 --at "2026-12-01 18:30"
+python bin/ytpost.py post mychannel --video ~/videos/talk.mp4 --meta ~/videos/talk_post.json   # any video
+python bin/ytpost.py queue mychannel                                 # scheduled and recent uploads
+python bin/ytpost.py set mychannel made_for_kids=no                  # once per channel: your audience designation
+python bin/ytpost.py set mychannel slots=10:00,18:00 category_id=28  # change the channel's defaults
 ```
 
 | Setting (`set`) | Default | Meaning |

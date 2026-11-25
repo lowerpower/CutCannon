@@ -625,7 +625,7 @@ def main():
         sys.exit(__doc__)
     a = ap.parse_args()
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,40}", a.channel):
-        die("channel names are lowercase letters, digits, - and _ (e.g. mycal)")
+        die("channel names are lowercase letters, digits, - and _ (e.g. mychannel)")
     {"auth": cmd_auth, "post": cmd_post, "queue": cmd_queue, "set": cmd_set}[a.cmd](a)
 
 
