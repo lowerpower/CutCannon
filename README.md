@@ -28,9 +28,9 @@ record ─▶ transcribe ─▶ plan ─▶ render ─▶ QA ─▶ tweak / undo
 - **Stabilization.** For handheld, walking, vehicle or boat footage, `"stabilize": true` in a plan removes camera shake (vid.stab, two passes): deliberate pans stay, the jitter goes. The source is stabilized once per project and cached, with the same frames, timestamps and audio, so cuts, transcript and captions still line up; HDR is tone-mapped in the same pass. Off by default (tripod shots and screen recordings don't need it).
 - **Brands: a look per show.** Caption font, colors and word highlight (colored word or a box behind it), and the hook card (colors, alignment, an optional prompt and cursor for a typed-terminal card), set once per show in `brands/<name>/brand.json`. `brand.py preview` shows it on a still in seconds. Ships with two examples, `terminal` and `gold`.
 - **Color.** iPhone HDR (HLG/PQ) is tone-mapped to SDR BT.709, so it looks right everywhere.
-- **Audio.** Two-pass loudnorm to −14 LUFS / −1.5 dBTP, with optional compression, high-pass, and denoise.
+- **Audio.** Two-pass loudnorm to −14 LUFS with the true peak at or below −2 dBTP, measured on the finished AAC file (AAC encoding adds peaks, so pass 2 is redone with a lower target when it does), with optional compression, high-pass, and denoise.
 - **Social media post kit** per short: cover image, `.srt` caption file, and `_post.md` with title, description and tags for YouTube Shorts, TikTok and Instagram Reels (from a `_post.json` Claude writes; the episode link is set once per project).
-- **Automatic QA** on every render: A/V sync measured on decoded content, duration, color, loudness, caption coverage, hook card, fillers remaining (the output is re-transcribed), joins (clipped, doubled or stray words at every cut), and framing. Each render also gets a contact sheet.
+- **Automatic QA** on every render: A/V sync measured on decoded content, duration, color, loudness, caption coverage, hook card, fillers remaining (the output is re-transcribed), joins (clipped, doubled or stray words at every cut), framing, and motion (a frozen picture, judged on every frame, since sampled stills can't show one). Each render also gets a contact sheet.
 - **Local and private.** Recordings, transcripts, and renders stay on your disk. There is no posting code.
 
 ## Requirements
@@ -94,6 +94,14 @@ If something breaks later (say, after a `brew upgrade`), run `python bin/doctor.
 Renders stay on the GPU machine. Ask Claude to copy finished files to another of your nodes (a laptop, say) when you want them there.
 
 **Option B: Claude Code on the machine.** `setup.sh` already installed the skills, so just run `claude` in the repo.
+
+**Unattended batches** (overnight, or from a script) use Claude Code's print mode. Pin the model with `--model`, so a long batch runs, and bills, on the model you chose rather than on whatever the machine's default happens to be:
+
+```bash
+cd ~/cutcannon && claude -p --model sonnet "Use the cutcannon-editor skill, unattended: make 5 shorts from podcast-ep12, render them, and report each short's QA line and notes."
+```
+
+A headless run also needs permission to run the toolkit's commands (Claude Code's `--allowedTools` and `--permission-mode` options). The skill's *Unattended runs* section sets what such a run fixes on its own, what it leaves for you, and how many jobs it runs at once. It never uploads or posts.
 
 ## Quick start
 
@@ -220,7 +228,7 @@ python bin/render.py product-demo --preview   # half resolution, fast
 
 ```
 s3_v004.mp4  49.6s -> 46.8s  (9 segments, punch-in)  nvenc
-  QA PASS: av_sync=ok duration=ok color=ok loudness=ok captions=ok hook_card=ok fillers=ok joins=ok framing=ok
+  QA PASS: av_sync=ok duration=ok color=ok loudness=ok captions=ok hook_card=ok fillers=ok joins=ok framing=ok motion=ok
   time: prep 22.9s | encode 17.4s | loudnorm 8.3s | qa 10.2s | total 58.8s = 1.21x the video length
 ```
 
@@ -229,12 +237,13 @@ s3_v004.mp4  49.6s -> 46.8s  (9 segments, punch-in)  nvenc
 | `av_sync` | decoded audio and video lengths within 45 ms (about 1 frame) |
 | `duration` | matches the plan; ≤ 60 s for vertical |
 | `color` | 8-bit BT.709 output, and an HDR source was actually tone-mapped |
-| `loudness` | −14 ± 1.5 LUFS, true peak ≤ −1.0 dBFS (loudness range reported) |
+| `loudness` | −14 ± 1.5 LUFS, true peak ≤ −1.0 dBTP (renders aim for ≤ −2.0; loudness range reported) |
 | `captions` | ≥ 95% of speech captioned (n/a when captions are off) |
 | `hook_card` | present if and only if the plan has one |
 | `fillers` | ≤ 1 um/uh found when the output is re-transcribed |
 | `joins` | at every cut, the re-transcription has no word or phrase missing (clipped) or doubled. Warnings that don't fail but are printed as `note:` lines even on a PASS, to check by ear: `extra` (a word at the cut that the captions don't have: usually a real word the transcript skipped, sometimes a cut-off fragment), `filler` (an um/uh left at a cut when fillers were meant to be cut) and `repeat` (the speaker really repeats words). `changed` (probably a mis-hearing) is only listed in `_qa.json`. The words either side of every edit are listed in `_qa.json` for review. n/a for renders older than segment logging |
-| `framing` | tracked face within the middle 60% of a vertical frame |
+| `framing` | tracked face within the middle 60% of a vertical frame. A `note:` when the face is under 10% of the frame width in most sampled frames: a wide shot, where the speaker reads small on a phone |
+| `motion` | no stretch of 2 s or more where the picture doesn't change at all, judged on every frame. On a captioned vertical short only the picture above the captions counts: captions change with every word, so they can't hide a stuck picture. A 1-2 s freeze is a `note:`. `_qa.json` also has `change_per_s`, how much the picture changes each second, to spot dead stretches and check that cuts register. n/a for a full-video cleanup: screen recordings hold still by nature, so their still stretches are reported, not judged |
 
 ### 5. Review, undo, approve
 

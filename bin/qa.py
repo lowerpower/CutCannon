@@ -2,7 +2,8 @@
 """qa.py <proj> [short_id ...] [--version vN] [--preview]
 
 Checks a rendered short and writes, next to the render:
-  <tag>_qa.json     sync, duration, color, loudness, captions, hook card, fillers, joins, framing
+  <tag>_qa.json     sync, duration, color, loudness, captions, hook card, fillers, joins, framing,
+                    motion
   <tag>_frames.png  contact sheet: hook, 25%, 50%, 75%, end
 render.py runs this automatically after every render.
 """
@@ -13,6 +14,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 import plan as P  # noqa: E402
 
 LUFS_TARGET, LUFS_TOL, TP_MAX = -14.0, 1.5, -1.0
+# Sampled frames can't see a frozen picture (a stuck source, dropped frames, a still that should
+# move): it passes every check made on stills. A freeze this long (s) is a note; this long fails.
+FREEZE_NOTE_S, FREEZE_FAIL_S = 1.0, 2.0
+FACE_MIN_W = 0.10  # largest face narrower than this share of the frame width: a note
 
 
 def stream_durations(mp4):
@@ -38,6 +43,40 @@ def loudness(mp4):
     lra = re.findall(r"LRA:\s+(-?[\d.]+) LU\b", err)
     loudness.lra = float(lra[-1]) if lra else None
     return (float(i[-1]) if i else None), (float(tp[-1]) if tp else None)
+
+
+def motion(mp4, look=None):
+    """Every frame, in one ffmpeg pass: where the picture stops changing (freezedetect), and how
+    much it changes each second (mean luma change from the previous frame, 0-255, from a
+    96-px-wide copy). With look (a captioned vertical short) only the picture above the caption
+    band is judged: captions change with every word, so a stuck video under them would still look
+    like motion to a whole-frame check. Returns (freezes [(start, end or None)], change per
+    second, whether the caption band was left out). RuntimeError if ffmpeg fails: no output
+    is never evidence of motion."""
+    W, H = (int(x) for x in subprocess.check_output(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+         "-of", "csv=p=0", str(mp4)], text=True).strip().split(",")[:2])
+    crop = ""
+    if look is not None and H > W:
+        c = look["captions"]
+        keep = int(H - W / 1080 * (c["margin_bottom"] + 3 * c["size"])) // 2 * 2  # 2 lines + room
+        if keep >= H // 4:
+            crop = f"crop=iw:{keep}:0:0,"
+    vf = (f"{crop}freezedetect=n=-60dB:d={FREEZE_NOTE_S},scale=96:-2,signalstats,"
+          "metadata=mode=print:key=lavfi.signalstats.YDIF:file=-")
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(mp4), "-map", "0:v:0",
+                        "-vf", vf, "-f", "null", "-"], capture_output=True, text=True)
+    if r.returncode:
+        last = [ln for ln in r.stderr.splitlines() if ln.strip()][-1:] or [f"exit {r.returncode}"]
+        raise RuntimeError(last[0].strip()[:200])
+    st = [float(x) for x in re.findall(r"freeze_start: ([\d.]+)", r.stderr)]
+    en = [float(x) for x in re.findall(r"freeze_end: ([\d.]+)", r.stderr)]
+    per = {}
+    for t, y in re.findall(r"pts_time:([\d.]+)\s+lavfi\.signalstats\.YDIF=([\d.]+)", r.stdout):
+        if float(t) > 0:  # the first frame has no previous frame (YDIF 0)
+            per.setdefault(int(float(t)), []).append(float(y))
+    change = [round(sum(v) / len(v), 2) for _, v in sorted(per.items())]
+    return [(a, en[k] if k < len(en) else None) for k, a in enumerate(st)], change, bool(crop)
 
 
 def ass_events(ass_path):
@@ -199,6 +238,7 @@ def join_audit(words, short, heard, total):
 
 def run(d, short, mp4, tag):
     import cv2
+    import brand as B
     import render as R
     mp4, rdir = Path(mp4), Path(mp4).parent
     words = json.loads((d / "transcript.json").read_text())["words"]
@@ -275,14 +315,15 @@ def run(d, short, mp4, tag):
     times = [min(short["hook_seconds"] / 2, fd / 2), fd * .25, fd * .5, fd * .75, max(fd - 0.5, 0)]
     cap = cv2.VideoCapture(str(mp4))
     det = R._detector()
-    thumbs, faces = [], []
+    thumbs, faces, widths = [], [], []
     for t in times:
         cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
         ok, fr = cap.read()
         if not ok:
             continue
-        x = det(fr)
-        faces.append(None if x is None else round(x, 2))
+        f = det(fr)
+        faces.append(None if f is None else round(f[0], 2))
+        widths.append(None if f is None else round(f[1], 3))
         th = cv2.resize(fr, (270, int(270 * fr.shape[0] / fr.shape[1])))
         cv2.putText(th, f"{t:.1f}s", (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 229, 255), 2)
         thumbs.append(th)
@@ -293,15 +334,44 @@ def run(d, short, mp4, tag):
         cv2.imwrite(str(sheet), np.hstack(thumbs))
     found = [x for x in faces if x is not None]
     if short.get("format") == "source":
-        checks["framing"] = {"face_x": faces, "pass": None}  # original frame, nothing cropped
+        checks["framing"] = {"face_x": faces, "face_w": widths, "pass": None}  # original frame, nothing cropped
     elif not found:
-        checks["framing"] = {"face_x": faces, "pass": None}
+        checks["framing"] = {"face_x": faces, "face_w": widths, "pass": None}
         notes.append("no face detected in sampled frames - framing not checked")
     else:
         off = [x for x in found if abs(x - 0.5) > 0.3]
-        checks["framing"] = {"face_x": faces, "pass": not off}
+        checks["framing"] = {"face_x": faces, "face_w": widths, "pass": not off}
         if off:
             notes.append("face near frame edge - try reframe left/right/center")
+        ws = sorted(w for w in widths if w is not None)
+        if ws[len(ws) // 2] < FACE_MIN_W:  # median: one small face in one frame is no wide shot
+            notes.append(f"face small in frame (about {ws[len(ws) // 2]:.0%} of the width): a wide shot "
+                         "reads poorly on a phone - say so, or choose a closer moment")
+
+    # motion: every frame, since sampled stills can't show a frozen picture. A cleanup of a
+    # screen recording is still for long stretches by nature, so there it's reported, not judged.
+    vertical_caps = short.get("format") != "source" and short.get("captions", True)
+    try:
+        fz, change, cropped = motion(mp4, B.for_short(short)[0] if vertical_caps else None)
+    except RuntimeError as e:  # not checked is not a pass
+        checks["motion"] = {"error": str(e), "pass": False}
+        notes.append(f"motion not checked: ffmpeg failed ({e}) - run bin/doctor.py")
+    else:
+        fz = [(a, b if b is not None else fd) for a, b in fz]
+        long_fz = [(a, b) for a, b in fz if b - a >= FREEZE_FAIL_S]
+        checks["motion"] = {"freezes_s": [[round(a, 2), round(b, 2)] for a, b in fz],
+                            "fail_at_s": FREEZE_FAIL_S, "above_captions_only": cropped,
+                            "change_per_s": change,
+                            "pass": None if short.get("format") == "source" else not long_fz}
+        if short.get("format") == "source":
+            if long_fz:
+                notes.append(f"picture still for {len(long_fz)} stretch(es) of {FREEZE_FAIL_S:g}s or more "
+                             f"(longest {max(b - a for a, b in long_fz):.1f}s): normal for a screen "
+                             "recording; check no webcam or video is stuck (motion.freezes_s)")
+        else:
+            for a, b in fz:
+                notes.append(f"picture frozen {a:.2f}-{b:.2f}s ({b - a:.1f}s)"
+                             + ("" if b - a >= FREEZE_FAIL_S else ", under the fail limit: watch it"))
 
     verdicts = [c["pass"] for c in checks.values() if c["pass"] is not None]
     report = {"render": mp4.name, "short": short["id"], "pass": all(verdicts),

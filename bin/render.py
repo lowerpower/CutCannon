@@ -41,12 +41,12 @@ def _faces():
 
 
 def _detector():
-    """f(frame) -> normalized x of the largest face, or None (used by QA)."""
+    """f(frame) -> (normalized x, normalized width) of the largest face, or None (used by QA)."""
     det = _faces()
 
     def one(frame):
         fs = det(frame)
-        return max(fs, key=lambda f: f[1])[0] if fs else None
+        return max(fs, key=lambda f: f[1]) if fs else None
     return one
 
 
@@ -439,25 +439,39 @@ def has_nvenc():  # kept for older callers
     return pick_encoder() == "nvenc"
 
 
-def two_pass_loudnorm(mp4, I=-14.0, TP=-2.0, LRA=11):
+TP_FINAL = -2.0  # dBTP ceiling for the finished file, measured after AAC encoding
+
+
+def two_pass_loudnorm(mp4, I=-14.0, TP=TP_FINAL, LRA=11):
     """Measure, then re-apply loudnorm linearly; video stream is copied untouched.
-    TP -2.0 (not -1.5) leaves headroom for the inter-sample peaks AAC encoding adds."""
+    AAC encoding adds inter-sample peaks on top of what loudnorm leaves (often a few tenths of a
+    dB), so the encoded result is measured, and while its true peak is over TP pass 2 is redone
+    with the target lowered by the overshoot (at most twice). Each try starts from the same
+    input, so retrying never stacks AAC encodes."""
+    import qa
     m = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-vn", "-i", str(mp4), "-af",
                         f"loudnorm=I={I}:TP={TP}:LRA={LRA}:print_format=json", "-f", "null", "-"],
                        capture_output=True, text=True).stderr
     j = json.loads(m[m.rindex("{"):m.rindex("}") + 1])
-    af = (f"loudnorm=I={I}:TP={TP}:LRA={LRA}:measured_I={j['input_i']}:measured_TP={j['input_tp']}:"
-          f"measured_LRA={j['input_lra']}:measured_thresh={j['input_thresh']}:"
-          f"offset={j['target_offset']}:linear=true")
     tmp = mp4.with_suffix(".ln.mp4")
-    r = subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(mp4),
-                        "-c:v", "copy", "-af", af, "-c:a", "aac", "-b:a", "160k", "-ar", "48000",
-                        "-movflags", "+faststart", str(tmp)], capture_output=True, text=True)
-    if r.returncode == 0:
-        tmp.replace(mp4)
-    else:
-        tmp.unlink(missing_ok=True)
-        print("    loudnorm pass 2 failed; kept single-pass audio")
+    target = TP
+    for attempt in range(3):
+        af = (f"loudnorm=I={I}:TP={target}:LRA={LRA}:measured_I={j['input_i']}:measured_TP={j['input_tp']}:"
+              f"measured_LRA={j['input_lra']}:measured_thresh={j['input_thresh']}:"
+              f"offset={j['target_offset']}:linear=true")
+        r = subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(mp4),
+                            "-c:v", "copy", "-af", af, "-c:a", "aac", "-b:a", "160k", "-ar", "48000",
+                            "-movflags", "+faststart", str(tmp)], capture_output=True, text=True)
+        if r.returncode:
+            tmp.unlink(missing_ok=True)
+            print("    loudnorm pass 2 failed; kept single-pass audio")
+            return
+        _, tp = qa.loudness(tmp)
+        if tp is None or tp <= TP or attempt == 2:
+            break
+        target = round(target - (tp - TP) - 0.1, 2)
+        print(f"    loudnorm: true peak {tp} dBTP after AAC, over {TP}; pass 2 again at TP {target}")
+    tmp.replace(mp4)
 
 
 def rescan_fillers(d, src, clips):
@@ -657,7 +671,7 @@ def render_short(d, meta, words, short, ver, preview, enc):
     pre = ([f"highpass=f={au['highpass']}"] if au.get("highpass") else []) + \
           (["afftdn=nf=-25"] if au.get("denoise") else []) + \
           (["acompressor=threshold=-24dB:ratio=2.5:attack=15:release=250:makeup=2"] if au.get("compress") else [])
-    fc.append(f"[ac]{','.join(pre + ['loudnorm=I=-14:TP=-2.0:LRA=11'])}[aout]")
+    fc.append(f"[ac]{','.join(pre + [f'loudnorm=I=-14:TP={TP_FINAL}:LRA=11'])}[aout]")
 
     outp = d / "renders" / f"{tag}.mp4"
     venc = (ENCODERS[enc][0] if enc in ENCODERS

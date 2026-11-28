@@ -31,6 +31,26 @@ in ONE message. If a multiple-choice question tool is available (e.g. AskUserQue
 Once the project is chosen and it isn't transcribed yet, start transcribing right away, since every
 next step needs the transcript.
 
+## Unattended runs
+
+When no one can answer (a `claude -p` batch, an overnight or scheduled job), the request is the
+whole brief. It must name the project, the job and the clips or how many; if one is missing, don't
+guess: stop and say what's missing. Otherwise the request counts as "go ahead": choose the clips by
+the rules in **Proposing clips**, render them, and list the runners-up you didn't render.
+
+- **Done** means every requested short is rendered, its QA line is PASS, and the final report gives
+  each short's QA line, every `note:` line and the file paths. Don't stop early with a list of
+  what's left or a "shall I continue?".
+- **Fix it and continue, without asking:** a failed or timed-out render or transcription is an
+  ordinary obstacle. Re-rendering, re-transcribing, nudging a clip edge by a few words and changing
+  `reframe` are pre-approved.
+- **Leave for the user:** which moments are clipped, and how many shorts. If a short can't pass QA
+  without such a change, report it as FAIL with the change it needs, and finish the others.
+- **Limits:** at most 1 `transcribe.py` and 1 `render.py` running at a time (`render.py` already
+  renders a project's shorts one after another, and its QA loads Whisper on the same GPU), and at
+  most 3 renders of one short per run. A short still failing after 3 is reported as FAIL.
+- Never upload, post, schedule or approve anything in an unattended run.
+
 ## Proposing clips
 
 Always **propose first and render only what the user picks**, unless they said to go ahead ("just make 3").
@@ -126,7 +146,7 @@ renders/). Renders stay in the project folder; never copy them elsewhere unless 
    Render one short: `python bin/render.py <slug> s2`
 
    **QA runs automatically after every render** and prints one line per short, e.g.
-   `QA PASS: av_sync=ok duration=ok color=ok loudness=ok captions=ok hook_card=ok fillers=ok joins=ok framing=ok`,
+   `QA PASS: av_sync=ok duration=ok color=ok loudness=ok captions=ok hook_card=ok fillers=ok joins=ok framing=ok motion=ok`,
    followed by a timing line (prep / encode / loudnorm / qa).
    It writes `renders/<tag>_qa.json` and a contact sheet `renders/<tag>_frames.png`
    (hook, 25%, 50%, 75%, end). Re-run alone with `python bin/qa.py <slug> [id]`.
@@ -140,7 +160,8 @@ renders/). Renders stay in the project folder; never copy them elsewhere unless 
    - `captions` FAIL → `uncaptioned_at_s` lists output times with speech but no caption; check those words in the transcript (often dropped by the word filter at a clip edge — widen the clip slightly).
    - `color` FAIL → the HDR source wasn't tone-mapped or the output is mis-tagged; re-render.
    - `fillers` FAIL → more than one um/uh survived; `at_s` lists output times. Usually a filler Whisper missed in the source transcript — cut it with a clip boundary.
-   - `framing` FAIL → face near the edge; set `reframe` to `left`/`right`/`center`. `n/a` means no face was found (screen recording, or the camera faced away) — say so.
+   - `framing` FAIL → face near the edge; set `reframe` to `left`/`right`/`center`. `n/a` means no face was found (screen recording, or the camera faced away) — say so. A `face small in frame` note means a wide shot where the speaker reads small on a phone: say so in the report.
+   - `motion` FAIL → the picture is frozen for 2 s or more (the `note:` gives the output times). Sampled frames can't show this, so look at the source at those times: a stuck or dropped-frame stretch in the source is cut around with a clip edge; a freeze the source doesn't have means re-render. A 1-2 s freeze is a `note:` to report. A `motion not checked` note means the scan itself failed: run `python bin/doctor.py`. `n/a` for a full-video cleanup, where still screens are normal: report its one summary note.
    - Tell the user the path to `_frames.png` so they can eyeball the look.
 
 4. **Review loop** — tell the user each short's duration, hook text, which lines were kept/cut and why, the QA result, and the file paths. Then take changes. Every change is a NEW version via `plan.py save`; never edit files in `plans/` directly.
