@@ -1,6 +1,6 @@
 ---
 name: cutcannon-editor
-description: Edit video recordings locally with Claude, either as vertical shorts (captions, hook card, speaker-tracking crop) or as a full-length cleanup (false starts, fillers and dead pauses removed, audio at -14 LUFS). Every cut is a versioned, undoable plan and every render is QA-checked. For each finished short it also writes a social media post kit (YouTube Shorts / TikTok / Instagram Reels title, description and hashtags, plus a cover image and caption file). Use whenever the user wants to cut, clip, propose, clean up, re-cut or re-render a video or a project in projects/, or wants titles, descriptions, hashtags, captions or social media posts for its clips, including vague requests like "let's make some clips" or "what's in my projects", where you start by asking which project, what job, and how many clips. Never uploads or posts anything.
+description: Edit video recordings locally with Claude, either as vertical shorts (captions, hook card, speaker-tracking crop) or as a full-length cleanup (false starts, fillers and dead pauses removed, audio at -14 LUFS). Every cut is a versioned, undoable plan and every render is QA-checked. For each finished short it also writes a social media post kit (YouTube Shorts / TikTok / Instagram Reels title, description and hashtags, plus a cover image and caption file). Use whenever the user wants to cut, clip, propose, clean up, re-cut or re-render a video or a project in projects/, or wants titles, descriptions, hashtags, captions or social media posts for its clips, including vague requests like "let's make some clips" or "what's in my projects", where you start by asking which project, what job, and how many clips. Also use it when the user wants a short or video scheduled or uploaded to YouTube. Never uploads or posts on its own: it schedules a YouTube upload (bin/ytpost.py) only when the user asks for that specific upload and says yes to its dry run.
 ---
 
 # cutcannon editor
@@ -183,6 +183,30 @@ renders/). Renders stay in the project folder; never copy them elsewhere unless 
 
 6. **Approve** only when the user says so: `python bin/plan.py approve <slug> [ids]`.
    Approval is a record, not an action. Do not upload, post, schedule, or copy renders anywhere unless the user explicitly asks for that specific action.
+
+7. **Schedule on YouTube** (opt-in: only when the user asks to upload or schedule a specific short or video).
+   Run `python bin/ytpost.py post <channel> <slug> <id> --dry-run` first and show the user its summary
+   (channel, publish time, title, category, captions, and whether YouTube will treat it as a Short).
+   Upload only after they say yes, with the same arguments minus `--dry-run`. Every upload goes up
+   **private with a scheduled publish time**: `--next` (the default) takes the next free daily slot from
+   the channel's settings, `--at "YYYY-MM-DD HH:MM"` a time they name. Report the youtu.be and Studio
+   links it prints. Any video works, not just a CutCannon short: `--video FILE --meta <file>_post.json`.
+   - Ask about `--synthetic` (YouTube's disclosure for realistic AI-generated or altered people, places
+     or events) when the video might need it; don't guess.
+   - The made-for-kids designation is the channel owner's to declare. If the dry run says the audience
+     is NOT SET, ask the user, then `ytpost.py set <channel> made_for_kids=no|yes`; never pick it yourself.
+   - `ytpost.py queue <channel>` lists scheduled and recent uploads; `ytpost.py set <channel> [key=value]`
+     shows or changes the daily slots, category and playlist.
+   - Never pass `--force` (a second upload of the same file) unless the user asks for a duplicate.
+   - The Google sign-in is the user's: when a command says the channel isn't signed in, or its sign-in
+     stopped working, run `ytpost.py auth <channel>`, give them the link, and finish with
+     `ytpost.py auth <channel> --code '<address>'` using the 127.0.0.1 address they paste back.
+     One-time Google Cloud setup: README, section 8.
+   - Permissions are chosen at sign-in: `--scope full` (default: caption tracks and playlists, but the
+     token can also edit and delete videos) or `--scope upload` (adds videos and can set any video's
+     thumbnail, but can't delete videos or change their details). If an upload reports
+     captions or playlist "skipped", the channel was signed in with `upload`; say so rather than
+     re-signing in on your own.
 
 ## Brands (a look per show)
 
