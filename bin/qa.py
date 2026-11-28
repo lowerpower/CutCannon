@@ -51,7 +51,8 @@ def motion(mp4, look=None):
     96-px-wide copy). With look (a captioned vertical short) only the picture above the caption
     band is judged: captions change with every word, so a stuck video under them would still look
     like motion to a whole-frame check. Returns (freezes [(start, end or None)], change per
-    second, whether the caption band was left out)."""
+    second, whether the caption band was left out). RuntimeError if ffmpeg fails: no output
+    is never evidence of motion."""
     W, H = (int(x) for x in subprocess.check_output(
         ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
          "-of", "csv=p=0", str(mp4)], text=True).strip().split(",")[:2])
@@ -65,6 +66,9 @@ def motion(mp4, look=None):
           "metadata=mode=print:key=lavfi.signalstats.YDIF:file=-")
     r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(mp4), "-map", "0:v:0",
                         "-vf", vf, "-f", "null", "-"], capture_output=True, text=True)
+    if r.returncode:
+        last = [ln for ln in r.stderr.splitlines() if ln.strip()][-1:] or [f"exit {r.returncode}"]
+        raise RuntimeError(last[0].strip()[:200])
     st = [float(x) for x in re.findall(r"freeze_start: ([\d.]+)", r.stderr)]
     en = [float(x) for x in re.findall(r"freeze_end: ([\d.]+)", r.stderr)]
     per = {}
@@ -347,22 +351,27 @@ def run(d, short, mp4, tag):
     # motion: every frame, since sampled stills can't show a frozen picture. A cleanup of a
     # screen recording is still for long stretches by nature, so there it's reported, not judged.
     vertical_caps = short.get("format") != "source" and short.get("captions", True)
-    fz, change, cropped = motion(mp4, B.for_short(short)[0] if vertical_caps else None)
-    fz = [(a, b if b is not None else fd) for a, b in fz]
-    long_fz = [(a, b) for a, b in fz if b - a >= FREEZE_FAIL_S]
-    checks["motion"] = {"freezes_s": [[round(a, 2), round(b, 2)] for a, b in fz],
-                        "fail_at_s": FREEZE_FAIL_S, "above_captions_only": cropped,
-                        "change_per_s": change,
-                        "pass": None if short.get("format") == "source" else not long_fz}
-    if short.get("format") == "source":
-        if long_fz:
-            notes.append(f"picture still for {len(long_fz)} stretch(es) of {FREEZE_FAIL_S:g}s or more "
-                         f"(longest {max(b - a for a, b in long_fz):.1f}s): normal for a screen "
-                         "recording; check no webcam or video is stuck (motion.freezes_s)")
+    try:
+        fz, change, cropped = motion(mp4, B.for_short(short)[0] if vertical_caps else None)
+    except RuntimeError as e:  # not checked is not a pass
+        checks["motion"] = {"error": str(e), "pass": False}
+        notes.append(f"motion not checked: ffmpeg failed ({e}) - run bin/doctor.py")
     else:
-        for a, b in fz:
-            notes.append(f"picture frozen {a:.2f}-{b:.2f}s ({b - a:.1f}s)"
-                         + ("" if b - a >= FREEZE_FAIL_S else ", under the fail limit: watch it"))
+        fz = [(a, b if b is not None else fd) for a, b in fz]
+        long_fz = [(a, b) for a, b in fz if b - a >= FREEZE_FAIL_S]
+        checks["motion"] = {"freezes_s": [[round(a, 2), round(b, 2)] for a, b in fz],
+                            "fail_at_s": FREEZE_FAIL_S, "above_captions_only": cropped,
+                            "change_per_s": change,
+                            "pass": None if short.get("format") == "source" else not long_fz}
+        if short.get("format") == "source":
+            if long_fz:
+                notes.append(f"picture still for {len(long_fz)} stretch(es) of {FREEZE_FAIL_S:g}s or more "
+                             f"(longest {max(b - a for a, b in long_fz):.1f}s): normal for a screen "
+                             "recording; check no webcam or video is stuck (motion.freezes_s)")
+        else:
+            for a, b in fz:
+                notes.append(f"picture frozen {a:.2f}-{b:.2f}s ({b - a:.1f}s)"
+                             + ("" if b - a >= FREEZE_FAIL_S else ", under the fail limit: watch it"))
 
     verdicts = [c["pass"] for c in checks.values() if c["pass"] is not None]
     report = {"render": mp4.name, "short": short["id"], "pass": all(verdicts),
